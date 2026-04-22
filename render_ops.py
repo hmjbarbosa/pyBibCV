@@ -34,19 +34,21 @@ class CVRenderer:
         self.root_dir = Path(root_dir)
         self.manager = manager
         self.config = manager.config
+        self.template_name = self.config.get("template_name", "basic_cv")
         self.output_dir = self.root_dir / self.config.get("output_dir", "output")
 
     def render(
         self,
-        template_name: str = "basic_cv",
+        template_name: Optional[str] = None,
         output_name: str = "cv",
         min_year: Optional[int] = None,
         keyword: Optional[str] = None,
         compile_pdf: bool = False,
     ) -> RenderResult:
-        template_spec = self.load_template_spec(template_name)
+        selected_template = template_name or self.template_name
+        template_spec = self.load_template_spec(selected_template)
         grouped_entries = self.collect_sections(template_spec, min_year=min_year, keyword=keyword)
-        tex_content = self.render_tex(template_name, template_spec, grouped_entries)
+        tex_content = self.render_tex(selected_template, template_spec, grouped_entries)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         tex_path = self.output_dir / f"{output_name}.tex"
         tex_path.write_text(tex_content, encoding="utf-8")

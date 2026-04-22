@@ -161,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def build_render_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="render", add_help=False)
-    parser.add_argument("--template", default="basic_cv", help="Template name without the .tex extension")
+    parser.add_argument("--template", help="Template name without the .tex/.json extension")
     parser.add_argument("--output", default="cv", help="Base filename for generated files")
     parser.add_argument("--min-year", type=int, help="Include only entries whose year is at least this value")
     parser.add_argument("--keyword", help="Include only entries whose fields contain this keyword")

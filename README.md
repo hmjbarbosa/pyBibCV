@@ -7,7 +7,7 @@
 - `cli.py`: command-line interface and interactive prompt
 - `bibtex_ops.py`: BibTeX parsing, formatting, loading, and linting
 - `render_ops.py`: CV section grouping, filtering, LaTeX rendering, and optional PDF compilation
-- `config.json`: app-level settings such as category file paths, required fields, output settings, and author defaults
+- `config.json`: app-level settings such as category file paths, required fields, the default template name, output settings, and author defaults
 - `data/`: source `.bib` files
 - `templates/`: paired LaTeX templates and template JSON configuration
 - `output/`: generated `.tex`, `.pdf`, and LaTeX auxiliary files
@@ -45,6 +45,8 @@ python3 cli.py render --compile
 ## How rendering works
 
 The `render` command reads the configured BibTeX files, then loads a matching template pair from `templates/`: a LaTeX skeleton such as `basic_cv.tex` and a JSON spec such as `basic_cv.json`. The JSON spec defines which sections appear, which BibTeX category feeds each section, how entries are formatted with field placeholders, and which list style each section uses. The generated `.tex` file is written to `output/`.
+
+By default, the renderer uses the template named by `template_name` in `config.json`. You can still override that choice for a single run with `--template`.
 
 ## Template configuration
 

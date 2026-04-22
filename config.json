@@ -13,6 +13,7 @@
     "grants": ["entry_type", "cite_key", "title", "author", "year"],
     "students": ["entry_type", "cite_key", "title", "author", "year"]
   },
+  "template_name": "basic_cv",
   "output_dir": "output",
   "author_name": "Sample Academic"
 }

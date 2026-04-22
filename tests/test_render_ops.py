@@ -21,6 +21,7 @@ TEST_CONFIG = """{
     "grants": ["entry_type", "cite_key", "title", "author", "year"],
     "students": ["entry_type", "cite_key", "title", "author", "year"]
   },
+  "template_name": "basic_cv",
   "output_dir": "output",
   "author_name": "Sample Academic"
 }"""
@@ -165,6 +166,12 @@ class RenderOpsTests(unittest.TestCase):
         result = self.renderer.render(output_name="test_cv", compile_pdf=False)
         self.assertTrue(result.tex_path.exists())
         self.assertIsNone(result.pdf_path)
+
+    def test_render_uses_template_name_from_config_by_default(self) -> None:
+        result = self.renderer.render(output_name="default_template_cv", compile_pdf=False)
+        content = result.tex_path.read_text(encoding="utf-8")
+        self.assertIn("Curriculum Vitae", content)
+        self.assertIn("Publications", content)
 
 
 if __name__ == "__main__":
