@@ -1,0 +1,30 @@
+{
+  "document_title": "Curriculum Vitae",
+  "sections": {
+    "Publications": {
+      "category": "publications",
+      "list": "enumerate",
+      "format": "<<author>>, <<year>>: <<title>>, <<journal>>, <<booktitle>>"
+    },
+    "Talks": {
+      "category": "talks",
+      "list": "itemize",
+      "format": "<<title>>, <<note>>, <<year>>"
+    },
+    "Service": {
+      "category": "service",
+      "list": "itemize",
+      "format": "<<title>>, <<note>>, <<year>>"
+    },
+    "Grants": {
+      "category": "grants",
+      "list": "enumerate",
+      "format": "<<title>>, <<author>>, <<institution>>, <<year>>"
+    },
+    "Students": {
+      "category": "students",
+      "list": "reverse-enumerate",
+      "format": "<<author>>, <<title>>, <<school>>, <<year>>"
+    }
+  }
+}

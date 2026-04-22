@@ -1,0 +1,18 @@
+{
+  "categories": {
+    "publications": "data/publications.bib",
+    "talks": "data/talks.bib",
+    "service": "data/service.bib",
+    "grants": "data/grants.bib",
+    "students": "data/students.bib"
+  },
+  "required_fields": {
+    "publications": ["entry_type", "cite_key", "title", "author", "year"],
+    "talks": ["entry_type", "cite_key", "title", "author", "year"],
+    "service": ["entry_type", "cite_key", "title", "author", "year"],
+    "grants": ["entry_type", "cite_key", "title", "author", "year"],
+    "students": ["entry_type", "cite_key", "title", "author", "year"]
+  },
+  "output_dir": "output",
+  "author_name": "Sample Academic"
+}
