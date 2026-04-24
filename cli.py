@@ -1,16 +1,18 @@
 import argparse
 import shlex
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from src.bibtex_ops import BibTeXManager
+from src.bibtex_ops import BibTeXManager, NormalizationChange, ParsedEntry
+from src.import_ops import DOIImportError, ImportManager
 from src.render_ops import CVRenderer, RenderResult
 
 
 class CVCLI:
-    def __init__(self, manager: BibTeXManager, renderer: CVRenderer):
+    def __init__(self, manager: BibTeXManager, renderer: CVRenderer, importer: ImportManager):
         self.manager = manager
         self.renderer = renderer
+        self.importer = importer
 
     def run(self, command: str, category: Optional[str] = None, options: Optional[List[str]] = None) -> int:
         option_list = options or []
@@ -22,6 +24,16 @@ class CVCLI:
             return self.handle_lint(category)
         if command == "render":
             return self.handle_render(category, option_list)
+        if command == "show":
+            return self.handle_show(category, option_list)
+        if command == "edit":
+            return self.handle_edit(category, option_list)
+        if command == "import-doi":
+            return self.handle_import_doi(category, option_list)
+        if command == "import-bibtex":
+            return self.handle_import_bibtex(category, option_list)
+        if command == "normalize":
+            return self.handle_normalize(category, option_list)
         if command in {"help", "?"}:
             self.print_help()
             return 0
@@ -58,7 +70,11 @@ class CVCLI:
                 break
             entry[field_name] = input(f"Value for {field_name}: ").strip()
 
-        self.manager.add_entry(category, entry)
+        try:
+            self.manager.add_entry(category, entry)
+        except ValueError as exc:
+            print(exc)
+            return 0
         print(f"Saved entry '{entry['cite_key']}' to {self.manager.category_path(category)}")
         return 0
 
@@ -120,6 +136,103 @@ class CVCLI:
         self.print_render_result(result)
         return 0
 
+    def handle_show(self, category: Optional[str], options: List[str]) -> int:
+        parser = build_show_parser()
+        try:
+            args = parser.parse_args(([category] if category else []) + options)
+            entry = self.manager.get_entry(args.category, args.cite_key)
+        except (SystemExit, ValueError) as exc:
+            if isinstance(exc, ValueError):
+                print(exc)
+            return 0
+
+        self.print_entry(entry)
+        return 0
+
+    def handle_edit(self, category: Optional[str], options: List[str]) -> int:
+        parser = build_edit_parser()
+        try:
+            args = parser.parse_args(([category] if category else []) + options)
+        except SystemExit:
+            return 0
+
+        set_fields: Dict[str, str] = {}
+        for item in args.set_items or []:
+            if "=" not in item:
+                print(f"Invalid --set value '{item}'. Use field=value.")
+                return 0
+            field, value = item.split("=", 1)
+            set_fields[field] = value
+
+        try:
+            updated_entry = self.manager.update_entry(args.category, args.cite_key, set_fields, args.remove_items or [])
+        except ValueError as exc:
+            print(exc)
+            return 0
+
+        print(f"Updated entry '{updated_entry['cite_key']}' in '{args.category}'.")
+        self.print_entry(updated_entry)
+        return 0
+
+    def handle_import_doi(self, category: Optional[str], options: List[str]) -> int:
+        parser = build_import_doi_parser()
+        try:
+            args = parser.parse_args(([category] if category else []) + options)
+            imported_entry = self.importer.import_doi(args.category, args.doi, requested_key=args.key)
+        except SystemExit:
+            return 0
+        except (DOIImportError, ValueError) as exc:
+            print(exc)
+            return 0
+
+        print(f"Imported DOI '{args.doi}' into '{args.category}'.")
+        self.print_entry(imported_entry)
+        return 0
+
+    def handle_import_bibtex(self, category: Optional[str], options: List[str]) -> int:
+        parser = build_import_bibtex_parser()
+        try:
+            args = parser.parse_args(([category] if category else []) + options)
+            if args.file_path:
+                imported_entries = self.importer.import_bibtex_file(args.category, args.file_path)
+            else:
+                imported_entries = self.importer.import_bibtex_string(args.category, args.string_value)
+        except SystemExit:
+            return 0
+        except (DOIImportError, OSError, ValueError) as exc:
+            print(exc)
+            return 0
+
+        print(f"Imported {len(imported_entries)} BibTeX entr{'y' if len(imported_entries) == 1 else 'ies'} into '{args.category}'.")
+        for entry in imported_entries:
+            self.print_entry(entry)
+        return 0
+
+    def handle_normalize(self, category: Optional[str], options: List[str]) -> int:
+        parser = build_normalize_parser()
+        try:
+            args = parser.parse_args(([category] if category else []) + options)
+        except SystemExit:
+            return 0
+
+        try:
+            changes, warnings = self.manager.normalize_collection(args.category, dry_run=not args.apply)
+        except ValueError as exc:
+            print(exc)
+            return 0
+
+        if not changes and not warnings:
+            print(f"No normalization changes needed in '{args.category}'.")
+            return 0
+
+        mode = "Applying" if args.apply else "Dry run for"
+        print(f"{mode} normalization in '{args.category}':")
+        for change in changes:
+            self.print_normalization_change(change)
+        for warning in warnings:
+            print(f"Warning: {warning}")
+        return 0
+
     def repl(self) -> int:
         self.print_help()
         while True:
@@ -136,12 +249,21 @@ class CVCLI:
 
     def print_help(self) -> None:
         print("Commands:")
-        print("  add <category>  - prompt for entry fields and append a BibTeX entry")
-        print("  list <category> - display all entries in a category")
-        print("  lint [category] - validate one category or all configured BibTeX files")
-        print("  render [options] - build a LaTeX CV and optionally compile a PDF")
-        print("  help            - show this message")
-        print("  exit            - quit interactive mode")
+        print("  add <category>             - prompt for entry fields and append a BibTeX entry")
+        print("  list <category>            - display all entries in a category")
+        print("  lint [category]            - validate one category or all configured BibTeX files")
+        print("  render [options]           - build a LaTeX CV and optionally compile a PDF")
+        print("  show <category> <key>      - display one entry")
+        print("  edit <category> <key>      - modify fields on an existing entry")
+        print("  import-doi <category> DOI  - import metadata from a DOI")
+        print("  import-bibtex <category>   - import BibTeX from a file or string")
+        print("  normalize <category>       - preview or apply conservative cleanup rules")
+        print("  help                       - show this message")
+        print("  exit                       - quit interactive mode")
+
+    @staticmethod
+    def print_entry(entry: ParsedEntry) -> None:
+        print(BibTeXManager.format_entry(entry["fields"]))
 
     @staticmethod
     def print_render_result(result: RenderResult) -> None:
@@ -151,10 +273,17 @@ class CVCLI:
         if result.compilation_message:
             print(result.compilation_message)
 
+    @staticmethod
+    def print_normalization_change(change: NormalizationChange) -> None:
+        if change["action"] == "remove":
+            print(f"- {change['cite_key']}: remove {change['field']} (was '{change['old']}')")
+        else:
+            print(f"- {change['cite_key']}: set {change['field']} from '{change['old']}' to '{change['new']}'")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage CV-related BibTeX data.")
-    parser.add_argument("command", nargs="?", help="Command to run: add, list, lint, render")
+    parser.add_argument("command", nargs="?", help="Command to run")
     parser.add_argument("category", nargs="?", help="Category to target, such as publications or talks")
     return parser
 
@@ -174,14 +303,57 @@ def build_render_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_show_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="show", add_help=False)
+    parser.add_argument("category")
+    parser.add_argument("cite_key")
+    return parser
+
+
+def build_edit_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="edit", add_help=False)
+    parser.add_argument("category")
+    parser.add_argument("cite_key")
+    parser.add_argument("--set", dest="set_items", action="append")
+    parser.add_argument("--remove", dest="remove_items", action="append")
+    return parser
+
+
+def build_import_doi_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="import-doi", add_help=False)
+    parser.add_argument("category")
+    parser.add_argument("doi")
+    parser.add_argument("--key")
+    return parser
+
+
+def build_import_bibtex_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="import-bibtex", add_help=False)
+    parser.add_argument("category")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--file", dest="file_path")
+    group.add_argument("--string", dest="string_value")
+    return parser
+
+
+def build_normalize_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="normalize", add_help=False)
+    parser.add_argument("category")
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument("--dry-run", action="store_true")
+    mode_group.add_argument("--apply", action="store_true")
+    return parser
+
+
 def main() -> int:
     manager = BibTeXManager(Path(__file__).resolve().parent)
     manager.ensure_storage()
     renderer = CVRenderer(Path(__file__).resolve().parent, manager)
+    importer = ImportManager(manager)
 
     parser = build_parser()
     args, extra_args = parser.parse_known_args()
-    cli = CVCLI(manager, renderer)
+    cli = CVCLI(manager, renderer, importer)
 
     if args.command:
         return cli.run(args.command, args.category, extra_args)

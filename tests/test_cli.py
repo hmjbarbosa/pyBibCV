@@ -73,6 +73,7 @@ class CLITests(unittest.TestCase):
         shutil.copy2(project_root / "cli.py", self.root / "cli.py")
         shutil.copy2(project_root / "src" / "__init__.py", self.root / "src" / "__init__.py")
         shutil.copy2(project_root / "src" / "bibtex_ops.py", self.root / "src" / "bibtex_ops.py")
+        shutil.copy2(project_root / "src" / "import_ops.py", self.root / "src" / "import_ops.py")
         shutil.copy2(project_root / "src" / "render_ops.py", self.root / "src" / "render_ops.py")
 
         (self.root / "config.json").write_text(TEST_CONFIG, encoding="utf-8")

@@ -4,7 +4,7 @@
     "Publications": {
       "category": "publications",
       "list": "enumerate",
-      "format": "<<author>>, <<year>>: <<title>>, <<journal>>, <<booktitle>>"
+      "format": "<<author>>, <<year>>: <<title>>, <<journal>>, <<volume>>, <<number>>, <<pages>>"
     },
     "Talks": {
       "category": "talks",
