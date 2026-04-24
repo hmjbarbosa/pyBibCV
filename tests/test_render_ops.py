@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bibtex_ops import BibTeXManager
-from render_ops import CVRenderer
+from src.bibtex_ops import BibTeXManager
+from src.render_ops import CVRenderer
 
 
 TEST_CONFIG = """{

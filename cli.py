@@ -3,8 +3,8 @@ import shlex
 from pathlib import Path
 from typing import List, Optional
 
-from bibtex_ops import BibTeXManager
-from render_ops import CVRenderer, RenderResult
+from src.bibtex_ops import BibTeXManager
+from src.render_ops import CVRenderer, RenderResult
 
 
 class CVCLI:

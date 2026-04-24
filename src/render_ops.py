@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
-from bibtex_ops import BibTeXManager, ParsedEntry
+from .bibtex_ops import BibTeXManager, ParsedEntry
 
 
 @dataclass

@@ -5,13 +5,13 @@
 ## Current project structure
 
 - `cli.py`: command-line interface and interactive prompt
-- `bibtex_ops.py`: BibTeX parsing, formatting, loading, and linting
-- `render_ops.py`: CV section grouping, filtering, LaTeX rendering, and optional PDF compilation
+- `src/bibtex_ops.py`: BibTeX parsing, formatting, loading, and linting
+- `src/render_ops.py`: CV section grouping, filtering, LaTeX rendering, and optional PDF compilation
 - `config.json`: app-level settings such as category file paths, required fields, the default template name, output settings, and author defaults
 - `data/`: source `.bib` files
 - `templates/`: paired LaTeX templates and template JSON configuration
 - `output/`: generated `.tex`, `.pdf`, and LaTeX auxiliary files
-- `tests/`: automated tests for the rendering pipeline
+- `tests/`: automated CLI and rendering tests
 
 ## Commands
 
@@ -83,7 +83,7 @@ Rendering writes files into `output/`, including:
 
 ## Tests
 
-Run the non-LaTeX rendering tests with:
+Run the automated tests with:
 
 ```bash
 python3 -m unittest discover -s tests
