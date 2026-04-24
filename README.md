@@ -22,43 +22,115 @@ Run the interactive prompt:
 python3 cli.py
 ```
 
-Inside the prompt, you can run commands like:
+You can run the same commands either directly from the shell or inside the interactive prompt.
 
-```text
-add publications
-list talks
-lint
-show talks barbosa_agu_2026
-edit talks barbosa_agu_2026 --set presentation_type=poster
-import-bibtex publications --string "@article{demo, title={Example}, author={Doe, John}, year={2024}}"
-normalize talks --dry-run
-render --output cv_preview
-render --min-year 2024 --compile
-```
+### `add`
 
-Run commands directly:
+Create a new BibTeX entry in a selected collection by answering prompts for the entry fields.
+
+Example:
 
 ```bash
-python3 cli.py list publications
+python3 cli.py add publications
+```
+
+### `list`
+
+Display all entries in one collection in a readable summary format.
+
+Example:
+
+```bash
+python3 cli.py list talks
+```
+
+### `lint`
+
+Validate one collection or all collections, including missing required fields, malformed records, duplicate cite keys, and duplicate publication DOIs where present.
+
+Examples:
+
+```bash
 python3 cli.py lint
-python3 cli.py show talks barbosa_agu_2026
-python3 cli.py edit talks barbosa_agu_2026 --set event_location="Chicago, IL"
+python3 cli.py lint publications
+```
+
+### `show`
+
+Display one entry identified by collection and cite key in raw BibTeX form.
+
+Example:
+
+```bash
+python3 cli.py show talks johndoe_ibm_2026
+```
+
+### `edit`
+
+Update one existing entry by setting or removing fields without manually editing the `.bib` file.
+
+Examples:
+
+```bash
+python3 cli.py edit talks johndoe_ibm_2026 --set presentation_type=poster
+python3 cli.py edit talks johndoe_ibm_2026 --set event_location="Chicago, IL" --remove venue
+```
+
+### `import-doi`
+
+Fetch publication metadata from a DOI and create a publication entry. You may optionally provide a custom cite key.
+
+Examples:
+
+```bash
 python3 cli.py import-doi publications 10.1038/nphys1170
+python3 cli.py import-doi publications 10.1038/nphys1170 --key my_custom_key
+```
+
+### `import-bibtex`
+
+Import one or more BibTeX entries into a collection from a file or from a raw BibTeX string.
+
+Examples:
+
+```bash
 python3 cli.py import-bibtex publications --file path/to/paper.bib
+python3 cli.py import-bibtex publications --string "@article{demo, title={Example}, author={Doe, John}, year={2024}}"
+```
+
+### `normalize`
+
+Preview or apply conservative cleanup rules for one collection.
+
+Examples:
+
+```bash
+python3 cli.py normalize talks --dry-run
 python3 cli.py normalize talks --apply
+```
+
+### `render`
+
+Generate a LaTeX CV from the configured BibTeX collections and template. You can optionally filter entries or request PDF compilation.
+
+Examples:
+
+```bash
 python3 cli.py render
 python3 cli.py render --output cv_preview
 python3 cli.py render --min-year 2024 --keyword workflow
 python3 cli.py render --compile
 ```
 
-## Milestone 3 commands
+### Interactive mode helpers
 
-- `show <category> <cite_key>`: print one BibTeX entry in a readable raw form
-- `edit <category> <cite_key> --set field=value --remove field`: update existing entries without opening the `.bib` file manually
-- `import-doi <category> DOI [--key custom_key]`: fetch publication metadata over the network and create an entry
-- `import-bibtex <category> --file path` or `--string "..."`: import one or more BibTeX entries
-- `normalize <category> --dry-run` or `--apply`: preview or apply conservative cleanup rules
+When you run `python3 cli.py` with no arguments, the program starts interactive mode with the prompt `pyBibCV>`.
+
+Special interactive commands:
+
+- `help`: show the available commands
+- `exit`: leave interactive mode
+- `quit`: leave interactive mode
 
 ## How rendering works
 
