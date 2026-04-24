@@ -36,6 +36,7 @@ class CVRenderer:
         self.config = manager.config
         self.template_name = self.config.get("template_name", "basic_cv")
         self.output_dir = self.root_dir / self.config.get("output_dir", "output")
+        self.latex_engine = self.config.get("latex_engine", "xelatex")
 
     def render(
         self,
@@ -167,7 +168,7 @@ class CVRenderer:
         return ", ".join(rendered_segments)
 
     def compile_pdf(self, tex_path: Path) -> Tuple[Optional[Path], str]:
-        compiler = self.find_latex_compiler()
+        compiler = self.find_latex_compiler(self.latex_engine)
         if compiler is None:
             return None, "No LaTeX compiler was found. The .tex file was generated successfully."
 
@@ -196,8 +197,14 @@ class CVRenderer:
         return [compiler, "-interaction=nonstopmode", "-halt-on-error", filename]
 
     @staticmethod
-    def find_latex_compiler() -> Optional[str]:
-        for compiler in ["latexmk", "xelatex", "pdflatex"]:
+    def find_latex_compiler(preferred_compiler: str = "xelatex") -> Optional[str]:
+        compilers: List[str] = []
+        if preferred_compiler:
+            compilers.append(preferred_compiler)
+        for compiler in ["xelatex", "latexmk", "pdflatex"]:
+            if compiler not in compilers:
+                compilers.append(compiler)
+        for compiler in compilers:
             if shutil.which(compiler):
                 return compiler
         return None

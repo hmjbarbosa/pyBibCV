@@ -24,6 +24,7 @@ TEST_CONFIG = """{
     "students": ["entry_type", "cite_key", "title", "author", "year"]
   },
   "template_name": "basic_cv",
+  "latex_engine": "xelatex",
   "output_dir": "output",
   "author_name": "Sample Academic"
 }"""
@@ -120,13 +121,20 @@ class GUIControllerTests(unittest.TestCase):
 
     def test_import_doi_through_gui_connected_logic(self) -> None:
         try:
-            imported = self.controller.import_doi("10.1038/nphys1170")
+            imported = self.controller.import_doi("publications", "10.1038/nphys1170")
         except DOIImportError as exc:
             self.skipTest(f"Network DOI lookup unavailable: {exc}")
             return
 
         self.assertIn("doi", imported["fields"])
         self.assertTrue(imported["fields"]["title"])
+
+    def test_controller_exposes_required_fields_and_known_entry_types(self) -> None:
+        self.assertEqual(
+            self.controller.required_fields("talks"),
+            ["entry_type", "cite_key", "title", "author", "year"],
+        )
+        self.assertEqual(self.controller.known_entry_types("talks"), ["misc"])
 
     def test_import_bibtex_through_gui_connected_logic(self) -> None:
         imported = self.controller.import_bibtex_string(

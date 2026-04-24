@@ -41,6 +41,24 @@ class BibTeXManager:
     def categories(self) -> List[str]:
         return list(self.config.get("categories", {}).keys())
 
+    def required_fields_for_category(self, category: str) -> List[str]:
+        self.category_path(category)
+        return list(
+            self.config.get("required_fields", {}).get(
+                category,
+                DEFAULT_REQUIRED_FIELDS.get(category, []),
+            )
+        )
+
+    def known_entry_types(self, category: str) -> List[str]:
+        self.category_path(category)
+        known_types: List[str] = []
+        for entry in self.list_entries(category):
+            entry_type = entry["entry_type"].strip()
+            if entry_type and entry_type not in known_types:
+                known_types.append(entry_type)
+        return known_types
+
     def category_path(self, category: str) -> Path:
         category_map = self.config.get("categories", {})
         if category not in category_map:

@@ -15,6 +15,7 @@ TEST_CONFIG = """{
     "talks": ["entry_type", "cite_key", "title", "author", "year"]
   },
   "template_name": "basic_cv",
+  "latex_engine": "xelatex",
   "output_dir": "output",
   "author_name": "Sample Academic"
 }"""
@@ -106,6 +107,7 @@ class CLITests(unittest.TestCase):
         updated = (self.root / "data" / "publications.bib").read_text(encoding="utf-8")
         self.assertIn("@article{new2026,", updated)
         self.assertIn("journal = {Testing Journal}", updated)
+        self.assertIn("existing: article", completed.stdout)
 
     def test_list_displays_entries_from_correct_collection(self) -> None:
         completed = self.run_cli("list", "talks")
@@ -139,6 +141,19 @@ class CLITests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0)
         self.assertIn("Unknown category 'unknown'", completed.stdout)
+
+    def test_edit_without_flags_prompts_interactively(self) -> None:
+        completed = self.run_cli(
+            "edit",
+            "talks",
+            "talk2025",
+            user_input="\n\nUpdated Talk Title\n\n\n\n\n",
+        )
+
+        updated = (self.root / "data" / "talks.bib").read_text(encoding="utf-8")
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("Updated Talk Title", updated)
+        self.assertIn("existing: misc", completed.stdout)
 
 
 if __name__ == "__main__":

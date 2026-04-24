@@ -30,6 +30,12 @@ class GUIController:
     def collections(self) -> List[str]:
         return self.manager.categories()
 
+    def required_fields(self, category: str) -> List[str]:
+        return self.manager.required_fields_for_category(category)
+
+    def known_entry_types(self, category: str) -> List[str]:
+        return self.manager.known_entry_types(category)
+
     def list_entries(self, category: str) -> List[ParsedEntry]:
         return self.manager.list_entries(category)
 
@@ -49,8 +55,8 @@ class GUIController:
     ) -> ParsedEntry:
         return self.manager.update_entry(category, cite_key, set_fields, remove_fields)
 
-    def import_doi(self, doi: str, cite_key: Optional[str] = None) -> ParsedEntry:
-        return self.importer.import_doi("publications", doi, requested_key=cite_key)
+    def import_doi(self, category: str, doi: str, cite_key: Optional[str] = None) -> ParsedEntry:
+        return self.importer.import_doi(category, doi, requested_key=cite_key)
 
     def import_bibtex_file(self, category: str, file_path: str) -> List[ParsedEntry]:
         return self.importer.import_bibtex_file(category, file_path)

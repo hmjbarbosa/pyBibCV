@@ -2,7 +2,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from src.bibtex_ops import BibTeXManager, ParsedEntry
 from src.gui_controller import GUIController
@@ -13,51 +13,52 @@ class EntryEditorDialog(tk.Toplevel):
     def __init__(
         self,
         master: tk.Misc,
-        categories: List[str],
+        controller: GUIController,
         title: str,
         category: Optional[str] = None,
         entry: Optional[ParsedEntry] = None,
     ):
         super().__init__(master)
+        self.controller = controller
+        self.categories = controller.collections()
+        self.original_entry = entry
         self.title(title)
         self.resizable(True, True)
         self.result = None
         self.transient(master)
         self.grab_set()
 
-        self.category_var = tk.StringVar(value=category or (categories[0] if categories else ""))
+        self.category_var = tk.StringVar(value=category or (self.categories[0] if self.categories else ""))
         self.entry_type_var = tk.StringVar(value=entry["entry_type"] if entry else "")
         self.cite_key_var = tk.StringVar(value=entry["cite_key"] if entry else "")
 
         ttk.Label(self, text="Collection").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
-        self.category_box = ttk.Combobox(self, textvariable=self.category_var, values=categories, state="readonly")
+        category_state = "disabled" if entry else "readonly"
+        self.category_box = ttk.Combobox(self, textvariable=self.category_var, values=self.categories, state=category_state)
         self.category_box.grid(row=0, column=1, sticky="ew", padx=8, pady=(8, 4))
+        self.category_box.bind("<<ComboboxSelected>>", self.on_category_changed)
 
         ttk.Label(self, text="Entry type").grid(row=1, column=0, sticky="w", padx=8, pady=4)
-        ttk.Entry(self, textvariable=self.entry_type_var).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
+        self.entry_type_box = ttk.Combobox(self, textvariable=self.entry_type_var)
+        self.entry_type_box.grid(row=1, column=1, sticky="ew", padx=8, pady=4)
+        self.entry_type_hint = ttk.Label(self, text="", foreground="#555555")
+        self.entry_type_hint.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 4))
 
-        ttk.Label(self, text="Cite key").grid(row=2, column=0, sticky="w", padx=8, pady=4)
-        ttk.Entry(self, textvariable=self.cite_key_var).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Label(self, text="Cite key").grid(row=3, column=0, sticky="w", padx=8, pady=4)
+        ttk.Entry(self, textvariable=self.cite_key_var).grid(row=3, column=1, sticky="ew", padx=8, pady=4)
 
-        ttk.Label(self, text="Fields (one per line: field=value)").grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 4))
+        ttk.Label(self, text="Fields (one per line: field=value)").grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 4))
         self.fields_text = ScrolledText(self, width=60, height=14)
-        self.fields_text.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=8, pady=4)
-
-        if entry:
-            field_lines = []
-            for field_name, value in entry["fields"].items():
-                if field_name in {"entry_type", "cite_key"}:
-                    continue
-                field_lines.append(f"{field_name}={value}")
-            self.fields_text.insert("1.0", "\n".join(field_lines))
+        self.fields_text.grid(row=5, column=0, columnspan=2, sticky="nsew", padx=8, pady=4)
 
         button_frame = ttk.Frame(self)
-        button_frame.grid(row=5, column=0, columnspan=2, sticky="e", padx=8, pady=8)
+        button_frame.grid(row=6, column=0, columnspan=2, sticky="e", padx=8, pady=8)
         ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=(8, 0))
         ttk.Button(button_frame, text="Save", command=self.on_save).pack(side="right")
 
         self.columnconfigure(1, weight=1)
-        self.rowconfigure(4, weight=1)
+        self.rowconfigure(5, weight=1)
+        self.refresh_dynamic_fields()
         self.wait_visibility()
         self.focus_set()
 
@@ -68,6 +69,49 @@ class EntryEditorDialog(tk.Toplevel):
             messagebox.showerror("Invalid Entry", str(exc), parent=self)
             return
         self.destroy()
+
+    def on_category_changed(self, event: object = None) -> None:
+        if self.original_entry is not None:
+            return
+        self.refresh_dynamic_fields()
+
+    def refresh_dynamic_fields(self) -> None:
+        category = self.category_var.get().strip()
+        if not category:
+            return
+
+        known_types = self.controller.known_entry_types(category)
+        self.entry_type_box["values"] = known_types
+        if known_types:
+            self.entry_type_hint.config(text=f"Known entry types in this collection: {', '.join(known_types)}")
+        else:
+            self.entry_type_hint.config(text="No existing entry types found in this collection yet.")
+
+        lines = self.build_field_lines(category)
+        self.fields_text.delete("1.0", "end")
+        self.fields_text.insert("1.0", "\n".join(lines))
+
+    def build_field_lines(self, category: str) -> List[str]:
+        required_fields = [
+            field_name
+            for field_name in self.controller.required_fields(category)
+            if field_name not in {"entry_type", "cite_key"}
+        ]
+        entry_fields = self.original_entry["fields"] if self.original_entry else {}
+
+        ordered_fields: List[str] = []
+        for field_name in required_fields:
+            ordered_fields.append(field_name)
+        for field_name in entry_fields.keys():
+            if field_name in {"entry_type", "cite_key"}:
+                continue
+            if field_name not in ordered_fields:
+                ordered_fields.append(field_name)
+
+        lines: List[str] = []
+        for field_name in ordered_fields:
+            lines.append(f"{field_name}={entry_fields.get(field_name, '')}")
+        return lines
 
     def parse_result(self) -> Dict[str, object]:
         entry_type = self.entry_type_var.get().strip()
@@ -139,6 +183,148 @@ class BibTeXImportTextDialog(tk.Toplevel):
             messagebox.showerror("Missing BibTeX", "Paste BibTeX content before importing.", parent=self)
             return
         self.result = {"category": category, "content": content}
+        self.destroy()
+
+
+class DOIImportDialog(tk.Toplevel):
+    def __init__(self, master: tk.Misc, categories: List[str], default_category: Optional[str] = None):
+        super().__init__(master)
+        self.title("Import DOI")
+        self.result = None
+        self.transient(master)
+        self.grab_set()
+
+        self.category_var = tk.StringVar(value=default_category or (categories[0] if categories else ""))
+        self.doi_var = tk.StringVar()
+        self.key_var = tk.StringVar()
+
+        ttk.Label(self, text="Collection").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+        ttk.Combobox(self, textvariable=self.category_var, values=categories, state="readonly").grid(
+            row=0, column=1, sticky="ew", padx=8, pady=(8, 4)
+        )
+        ttk.Label(self, text="DOI").grid(row=1, column=0, sticky="w", padx=8, pady=4)
+        ttk.Entry(self, textvariable=self.doi_var).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Label(self, text="Custom cite key (optional)").grid(row=2, column=0, sticky="w", padx=8, pady=4)
+        ttk.Entry(self, textvariable=self.key_var).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
+
+        button_frame = ttk.Frame(self)
+        button_frame.grid(row=3, column=0, columnspan=2, sticky="e", padx=8, pady=8)
+        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=(8, 0))
+        ttk.Button(button_frame, text="Import", command=self.on_import).pack(side="right")
+        self.columnconfigure(1, weight=1)
+
+    def on_import(self) -> None:
+        category = self.category_var.get().strip()
+        doi = self.doi_var.get().strip()
+        custom_key = self.key_var.get().strip()
+        if not category:
+            messagebox.showerror("Missing Collection", "Choose a target collection.", parent=self)
+            return
+        if not doi:
+            messagebox.showerror("Missing DOI", "Enter a DOI before importing.", parent=self)
+            return
+        self.result = {"category": category, "doi": doi, "cite_key": custom_key or None}
+        self.destroy()
+
+
+class BibTeXImportFileDialog(tk.Toplevel):
+    def __init__(self, master: tk.Misc, categories: List[str], default_category: Optional[str] = None):
+        super().__init__(master)
+        self.title("Import BibTeX File")
+        self.result = None
+        self.transient(master)
+        self.grab_set()
+
+        self.category_var = tk.StringVar(value=default_category or (categories[0] if categories else ""))
+        self.path_var = tk.StringVar()
+
+        ttk.Label(self, text="Collection").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+        ttk.Combobox(self, textvariable=self.category_var, values=categories, state="readonly").grid(
+            row=0, column=1, sticky="ew", padx=8, pady=(8, 4)
+        )
+        ttk.Label(self, text="Selected file").grid(row=1, column=0, sticky="w", padx=8, pady=4)
+        ttk.Label(self, textvariable=self.path_var).grid(row=1, column=1, sticky="w", padx=8, pady=4)
+
+        button_frame = ttk.Frame(self)
+        button_frame.grid(row=2, column=0, columnspan=2, sticky="e", padx=8, pady=8)
+        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=(8, 0))
+        ttk.Button(button_frame, text="Load File", command=self.on_load).pack(side="right")
+        self.columnconfigure(1, weight=1)
+
+    def on_load(self) -> None:
+        category = self.category_var.get().strip()
+        if not category:
+            messagebox.showerror("Missing Collection", "Choose a target collection.", parent=self)
+            return
+        file_path = filedialog.askopenfilename(
+            parent=self,
+            title="Choose a BibTeX file",
+            filetypes=[("BibTeX files", "*.bib"), ("All files", "*.*")],
+        )
+        if not file_path:
+            return
+        self.path_var.set(file_path)
+        self.result = {"category": category, "file_path": file_path}
+        self.destroy()
+
+
+class ValidationDialog(tk.Toplevel):
+    def __init__(self, master: tk.Misc, categories: List[str], default_category: Optional[str] = None):
+        super().__init__(master)
+        self.title("Validate")
+        self.result = None
+        self.confirmed = False
+        self.transient(master)
+        self.grab_set()
+
+        options = ["(all collections)"] + categories
+        selected = default_category if default_category in categories else "(all collections)"
+        self.category_var = tk.StringVar(value=selected)
+        ttk.Label(self, text="Collection").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+        ttk.Combobox(self, textvariable=self.category_var, values=options, state="readonly").grid(
+            row=0, column=1, sticky="ew", padx=8, pady=(8, 4)
+        )
+
+        button_frame = ttk.Frame(self)
+        button_frame.grid(row=1, column=0, columnspan=2, sticky="e", padx=8, pady=8)
+        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=(8, 0))
+        ttk.Button(button_frame, text="Validate", command=self.on_validate).pack(side="right")
+        self.columnconfigure(1, weight=1)
+
+    def on_validate(self) -> None:
+        category = self.category_var.get().strip()
+        self.confirmed = True
+        self.result = None if category == "(all collections)" else category
+        self.destroy()
+
+
+class NormalizeDialog(tk.Toplevel):
+    def __init__(self, master: tk.Misc, categories: List[str], default_category: Optional[str] = None):
+        super().__init__(master)
+        self.title("Normalize")
+        self.result: Optional[Tuple[str, bool]] = None
+        self.transient(master)
+        self.grab_set()
+
+        self.category_var = tk.StringVar(value=default_category or (categories[0] if categories else ""))
+        ttk.Label(self, text="Collection").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
+        ttk.Combobox(self, textvariable=self.category_var, values=categories, state="readonly").grid(
+            row=0, column=1, sticky="ew", padx=8, pady=(8, 4)
+        )
+
+        button_frame = ttk.Frame(self)
+        button_frame.grid(row=1, column=0, columnspan=2, sticky="e", padx=8, pady=8)
+        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=(8, 0))
+        ttk.Button(button_frame, text="Apply", command=lambda: self.finish(True)).pack(side="right", padx=(8, 0))
+        ttk.Button(button_frame, text="Dry Run", command=lambda: self.finish(False)).pack(side="right")
+        self.columnconfigure(1, weight=1)
+
+    def finish(self, apply_changes: bool) -> None:
+        category = self.category_var.get().strip()
+        if not category:
+            messagebox.showerror("Missing Collection", "Choose a target collection.", parent=self)
+            return
+        self.result = (category, apply_changes)
         self.destroy()
 
 
@@ -276,7 +462,7 @@ class PyBibCVApp:
         self.detail_text.config(state="disabled")
 
     def add_entry(self) -> None:
-        dialog = EntryEditorDialog(self.root, self.controller.collections(), "Add Entry", category=self.current_category)
+        dialog = EntryEditorDialog(self.root, self.controller, "Add Entry", category=self.current_category)
         self.root.wait_window(dialog)
         if not dialog.result:
             return
@@ -297,7 +483,7 @@ class PyBibCVApp:
 
         dialog = EntryEditorDialog(
             self.root,
-            self.controller.collections(),
+            self.controller,
             "Edit Entry",
             category=self.current_category,
             entry=entry,
@@ -324,19 +510,23 @@ class PyBibCVApp:
         messagebox.showinfo("Entry Updated", f"Updated entry '{updated['cite_key']}'.", parent=self.root)
 
     def import_doi(self) -> None:
-        doi = simpledialog.askstring("Import DOI", "Enter DOI:", parent=self.root)
-        if not doi:
+        dialog = DOIImportDialog(self.root, self.controller.collections(), default_category=self.current_category)
+        self.root.wait_window(dialog)
+        if not dialog.result:
             return
-        custom_key = simpledialog.askstring("Import DOI", "Optional custom cite key:", parent=self.root)
         try:
-            imported = self.controller.import_doi(doi.strip(), cite_key=(custom_key.strip() if custom_key else None))
+            imported = self.controller.import_doi(
+                dialog.result["category"],
+                dialog.result["doi"],
+                cite_key=dialog.result["cite_key"],
+            )
         except DOIImportError as exc:
             self.show_error(str(exc))
             return
         except Exception as exc:
             self.show_error(str(exc))
             return
-        self.refresh_after_change("publications", imported["cite_key"])
+        self.refresh_after_change(dialog.result["category"], imported["cite_key"])
         messagebox.showinfo("DOI Imported", BibTeXManager.format_entry(imported["fields"]), parent=self.root)
 
     def import_bibtex_text(self) -> None:
@@ -359,36 +549,29 @@ class PyBibCVApp:
         )
 
     def import_bibtex_file(self) -> None:
-        category = self.ensure_category_selected()
-        if not category:
-            return
-        file_path = filedialog.askopenfilename(
-            parent=self.root,
-            title="Choose a BibTeX file",
-            filetypes=[("BibTeX files", "*.bib"), ("All files", "*.*")],
-        )
-        if not file_path:
+        dialog = BibTeXImportFileDialog(self.root, self.controller.collections(), default_category=self.current_category)
+        self.root.wait_window(dialog)
+        if not dialog.result:
             return
         try:
-            imported_entries = self.controller.import_bibtex_file(category, file_path)
+            imported_entries = self.controller.import_bibtex_file(dialog.result["category"], dialog.result["file_path"])
         except Exception as exc:
             self.show_error(str(exc))
             return
         final_key = imported_entries[-1]["cite_key"] if imported_entries else None
-        self.refresh_after_change(category, final_key)
+        self.refresh_after_change(dialog.result["category"], final_key)
         messagebox.showinfo(
             "BibTeX Imported",
-            f"Imported {len(imported_entries)} entr{'y' if len(imported_entries) == 1 else 'ies'} into '{category}'.",
+            f"Imported {len(imported_entries)} entr{'y' if len(imported_entries) == 1 else 'ies'} into '{dialog.result['category']}'.",
             parent=self.root,
         )
 
     def run_validation(self) -> None:
-        validate_current = messagebox.askyesno(
-            "Validation Scope",
-            "Validate only the currently selected collection?\nChoose No to validate all collections.",
-            parent=self.root,
-        )
-        category = self.current_category if validate_current else None
+        dialog = ValidationDialog(self.root, self.controller.collections(), default_category=self.current_category)
+        self.root.wait_window(dialog)
+        if not dialog.confirmed:
+            return
+        category = dialog.result
         try:
             issues = self.controller.validate(category)
         except Exception as exc:
@@ -402,14 +585,11 @@ class PyBibCVApp:
         messagebox.showwarning("Validation Results", "\n".join(issues), parent=self.root)
 
     def run_normalization(self) -> None:
-        category = self.ensure_category_selected()
-        if not category:
+        dialog = NormalizeDialog(self.root, self.controller.collections(), default_category=self.current_category)
+        self.root.wait_window(dialog)
+        if not dialog.result:
             return
-        apply_changes = messagebox.askyesno(
-            "Normalization Mode",
-            "Apply normalization changes now?\nChoose No for dry-run preview only.",
-            parent=self.root,
-        )
+        category, apply_changes = dialog.result
         try:
             changes, warnings = self.controller.normalize(category, apply_changes=apply_changes)
         except Exception as exc:

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from src.bibtex_ops import BibTeXManager
@@ -22,6 +23,7 @@ TEST_CONFIG = """{
     "students": ["entry_type", "cite_key", "title", "author", "year"]
   },
   "template_name": "basic_cv",
+  "latex_engine": "xelatex",
   "output_dir": "output",
   "author_name": "Sample Academic"
 }"""
@@ -172,6 +174,16 @@ class RenderOpsTests(unittest.TestCase):
         content = result.tex_path.read_text(encoding="utf-8")
         self.assertIn("Curriculum Vitae", content)
         self.assertIn("Publications", content)
+
+    def test_find_latex_compiler_prefers_configured_engine(self) -> None:
+        def fake_which(name: str) -> str:
+            available = {"xelatex": "/usr/bin/xelatex", "pdflatex": "/usr/bin/pdflatex"}
+            return available.get(name, "")
+
+        with mock.patch("src.render_ops.shutil.which", side_effect=fake_which):
+            compiler = self.renderer.find_latex_compiler(self.renderer.latex_engine)
+
+        self.assertEqual(compiler, "xelatex")
 
 
 if __name__ == "__main__":

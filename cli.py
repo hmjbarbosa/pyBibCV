@@ -56,13 +56,13 @@ class CVCLI:
             return 0
 
         print(f"Adding a new entry to '{category}'. Leave optional fields blank.")
+        entry_type_prompt = self.build_entry_type_prompt(category)
         entry = {
-            "entry_type": input("Entry type (e.g., article, inproceedings, misc): ").strip(),
+            "entry_type": input(entry_type_prompt).strip(),
             "cite_key": input("Citation key: ").strip(),
-            "title": input("Title: ").strip(),
-            "author": input("Author(s): ").strip(),
-            "year": input("Year: ").strip(),
         }
+        for field_name in self.required_nonstructural_fields(category):
+            entry[field_name] = input(f"{self.label_for_field(field_name)}: ").strip()
 
         while True:
             field_name = input("Extra field name (press Enter to finish): ").strip()
@@ -164,6 +164,9 @@ class CVCLI:
             field, value = item.split("=", 1)
             set_fields[field] = value
 
+        if not set_fields and not (args.remove_items or []):
+            return self.handle_edit_interactive(args.category, args.cite_key)
+
         try:
             updated_entry = self.manager.update_entry(args.category, args.cite_key, set_fields, args.remove_items or [])
         except ValueError as exc:
@@ -232,6 +235,99 @@ class CVCLI:
         for warning in warnings:
             print(f"Warning: {warning}")
         return 0
+
+    def handle_edit_interactive(self, category: str, cite_key: str) -> int:
+        try:
+            entry = self.manager.get_entry(category, cite_key)
+        except ValueError as exc:
+            print(exc)
+            return 0
+
+        print(f"Editing entry '{cite_key}' in '{category}'. Press Enter to keep the current value.")
+        updated_fields: Dict[str, str] = {}
+        prompted_fields: List[str] = []
+
+        entry_type_prompt = self.build_entry_type_prompt(category, current_value=entry["entry_type"])
+        new_entry_type = input(entry_type_prompt).strip()
+        if new_entry_type:
+            updated_fields["entry_type"] = new_entry_type
+        prompted_fields.append("entry_type")
+
+        new_cite_key = input(f"Citation key ({entry['cite_key']}): ").strip()
+        if new_cite_key:
+            updated_fields["cite_key"] = new_cite_key
+        prompted_fields.append("cite_key")
+
+        fields_to_prompt = self.edit_prompt_fields(category, entry)
+        for field_name in fields_to_prompt:
+            current_value = entry["fields"].get(field_name, "")
+            prompt = f"{self.label_for_field(field_name)}"
+            if current_value:
+                prompt += f" ({current_value})"
+            prompt += ": "
+            new_value = input(prompt).strip()
+            if new_value:
+                updated_fields[field_name] = new_value
+            prompted_fields.append(field_name)
+
+        while True:
+            field_name = input("Extra field name to edit (press Enter to finish): ").strip()
+            if not field_name:
+                break
+            current_value = entry["fields"].get(field_name, "")
+            prompt = f"Value for {field_name}"
+            if current_value:
+                prompt += f" ({current_value})"
+            prompt += ": "
+            new_value = input(prompt).strip()
+            if new_value:
+                updated_fields[field_name] = new_value
+
+        try:
+            updated_entry = self.manager.update_entry(category, cite_key, updated_fields, [])
+        except ValueError as exc:
+            print(exc)
+            return 0
+
+        print(f"Updated entry '{updated_entry['cite_key']}' in '{category}'.")
+        self.print_entry(updated_entry)
+        return 0
+
+    def build_entry_type_prompt(self, category: str, current_value: Optional[str] = None) -> str:
+        known_types = self.manager.known_entry_types(category)
+        if known_types:
+            joined = ", ".join(known_types)
+            prompt = f"Entry type (existing: {joined}"
+            if current_value:
+                prompt += f"; current: {current_value}"
+            prompt += "): "
+            return prompt
+        if current_value:
+            return f"Entry type ({current_value}): "
+        return "Entry type (e.g., article, inproceedings, misc): "
+
+    def required_nonstructural_fields(self, category: str) -> List[str]:
+        return [
+            field_name
+            for field_name in self.manager.required_fields_for_category(category)
+            if field_name not in {"entry_type", "cite_key"}
+        ]
+
+    def edit_prompt_fields(self, category: str, entry: ParsedEntry) -> List[str]:
+        ordered_fields: List[str] = []
+        for field_name in self.required_nonstructural_fields(category):
+            if field_name not in ordered_fields:
+                ordered_fields.append(field_name)
+        for field_name in entry["fields"].keys():
+            if field_name in {"entry_type", "cite_key"}:
+                continue
+            if field_name not in ordered_fields:
+                ordered_fields.append(field_name)
+        return ordered_fields
+
+    @staticmethod
+    def label_for_field(field_name: str) -> str:
+        return field_name.replace("_", " ").title()
 
     def repl(self) -> int:
         self.print_help()
