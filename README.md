@@ -5,7 +5,9 @@
 ## Current project structure
 
 - `cli.py`: command-line interface and interactive prompt
+- `gui.py`: Tkinter desktop application entry point
 - `src/bibtex_ops.py`: BibTeX parsing, formatting, loading, and linting
+- `src/gui_controller.py`: thin controller layer shared by the Tkinter GUI and GUI-focused tests
 - `src/import_ops.py`: DOI import and BibTeX import helpers
 - `src/render_ops.py`: CV section grouping, filtering, LaTeX rendering, and optional PDF compilation
 - `config.json`: app-level settings such as category file paths, required fields, the default template name, output settings, and author defaults
@@ -15,6 +17,12 @@
 - `tests/`: automated CLI and rendering tests
 
 ## Commands
+
+Launch the desktop GUI:
+
+```bash
+python3 gui.py
+```
 
 Run the interactive prompt:
 
@@ -131,6 +139,23 @@ Special interactive commands:
 - `help`: show the available commands
 - `exit`: leave interactive mode
 - `quit`: leave interactive mode
+
+## Desktop GUI
+
+The Tkinter desktop application reuses the same backend logic as the CLI. It is launched with:
+
+```bash
+python3 gui.py
+```
+
+The main window includes:
+
+- a collection list
+- an entry list for the selected collection
+- an entry detail panel
+- action buttons and menu items for add, edit, DOI import, BibTeX import, validation, normalization, and rendering
+
+The GUI is intentionally practical rather than highly styled. It is designed to cover routine workflows without reimplementing business logic outside the shared backend modules.
 
 ## How rendering works
 
