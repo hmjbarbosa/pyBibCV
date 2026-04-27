@@ -385,7 +385,19 @@ class PyBibCVApp:
         for label, command in buttons:
             ttk.Button(toolbar, text=label, command=command).pack(side="left", padx=(0, 6))
 
-        panes = ttk.Panedwindow(container, orient="horizontal")
+        vertical_panes = tk.PanedWindow(
+            container,
+            orient="vertical",
+            sashrelief="raised",
+            sashwidth=8,
+            bd=0,
+        )
+        vertical_panes.pack(fill="both", expand=True)
+
+        main_area = ttk.Frame(vertical_panes)
+        output_area = ttk.Frame(vertical_panes)
+
+        panes = ttk.Panedwindow(main_area, orient="horizontal")
         panes.pack(fill="both", expand=True)
 
         collection_frame = ttk.Labelframe(panes, text="Collections", padding=8)
@@ -406,6 +418,19 @@ class PyBibCVApp:
         panes.add(collection_frame, weight=1)
         panes.add(entry_frame, weight=2)
         panes.add(detail_frame, weight=3)
+
+        output_frame = ttk.Labelframe(output_area, text="Output", padding=8)
+        output_frame.pack(fill="both", expand=True)
+
+        output_controls = ttk.Frame(output_frame)
+        output_controls.pack(fill="x", pady=(0, 6))
+        ttk.Button(output_controls, text="Clear", command=self.clear_output).pack(side="right")
+
+        self.output_text = ScrolledText(output_frame, wrap="word", height=10, state="disabled")
+        self.output_text.pack(fill="both", expand=True)
+
+        vertical_panes.add(main_area, stretch="always", minsize=250)
+        vertical_panes.add(output_area, minsize=120)
 
     def refresh_collections(self) -> None:
         collections = self.controller.collections()
@@ -475,7 +500,7 @@ class PyBibCVApp:
             self.show_error(str(exc))
             return
         self.refresh_after_change(payload["category"], saved["cite_key"])
-        messagebox.showinfo("Entry Saved", f"Saved entry '{saved['cite_key']}' to '{payload['category']}'.", parent=self.root)
+        self.write_output(f"Saved entry '{saved['cite_key']}' to '{payload['category']}'.")
 
     def edit_entry(self) -> None:
         entry = self.require_selected_entry()
@@ -508,7 +533,7 @@ class PyBibCVApp:
             self.show_error(str(exc))
             return
         self.refresh_after_change(payload["category"], updated["cite_key"])
-        messagebox.showinfo("Entry Updated", f"Updated entry '{updated['cite_key']}'.", parent=self.root)
+        self.write_output(f"Updated entry '{updated['cite_key']}' in '{payload['category']}'.")
 
     def import_doi(self) -> None:
         dialog = DOIImportDialog(self.root, self.controller.collections(), default_category=self.current_category)
@@ -528,7 +553,8 @@ class PyBibCVApp:
             self.show_error(str(exc))
             return
         self.refresh_after_change(dialog.result["category"], imported["cite_key"])
-        messagebox.showinfo("DOI Imported", BibTeXManager.format_entry(imported["fields"]), parent=self.root)
+        self.write_output("DOI Imported:")
+        self.write_output(BibTeXManager.format_entry(imported["fields"]))
 
     def import_bibtex_text(self) -> None:
         dialog = BibTeXImportTextDialog(self.root, self.controller.collections(), default_category=self.current_category)
@@ -543,10 +569,8 @@ class PyBibCVApp:
             return
         final_key = imported_entries[-1]["cite_key"] if imported_entries else None
         self.refresh_after_change(dialog.result["category"], final_key)
-        messagebox.showinfo(
-            "BibTeX Imported",
-            f"Imported {len(imported_entries)} entr{'y' if len(imported_entries) == 1 else 'ies'}.",
-            parent=self.root,
+        self.write_output(
+            f"Imported {len(imported_entries)} entr{'y' if len(imported_entries) == 1 else 'ies'} into '{dialog.result['category']}'."
         )
 
     def import_bibtex_file(self) -> None:
@@ -561,10 +585,8 @@ class PyBibCVApp:
             return
         final_key = imported_entries[-1]["cite_key"] if imported_entries else None
         self.refresh_after_change(dialog.result["category"], final_key)
-        messagebox.showinfo(
-            "BibTeX Imported",
-            f"Imported {len(imported_entries)} entr{'y' if len(imported_entries) == 1 else 'ies'} into '{dialog.result['category']}'.",
-            parent=self.root,
+        self.write_output(
+            f"Imported {len(imported_entries)} entr{'y' if len(imported_entries) == 1 else 'ies'} into '{dialog.result['category']}'."
         )
 
     def run_validation(self) -> None:
@@ -581,9 +603,11 @@ class PyBibCVApp:
 
         if not issues:
             target = category or "all collections"
-            messagebox.showinfo("Validation", f"No validation issues found in {target}.", parent=self.root)
+            self.write_output(f"No validation issues found in {target}.")
             return
-        messagebox.showwarning("Validation Results", "\n".join(issues), parent=self.root)
+        self.write_output("Validation Results:")
+        for issue in issues:
+            self.write_output(f"- {issue}")
 
     def run_normalization(self) -> None:
         dialog = NormalizeDialog(self.root, self.controller.collections(), default_category=self.current_category)
@@ -613,7 +637,9 @@ class PyBibCVApp:
             lines.append(f"No normalization changes needed in '{category}'.")
 
         title = "Normalization Applied" if apply_changes else "Normalization Preview"
-        messagebox.showinfo(title, "\n".join(lines), parent=self.root)
+        self.write_output(f"{title} for '{category}':")
+        for line in lines:
+            self.write_output(line)
 
     def render_cv(self) -> None:
         output_name = simpledialog.askstring("Render CV", "Output base name:", initialvalue="cv", parent=self.root)
@@ -630,12 +656,19 @@ class PyBibCVApp:
             self.show_error(str(exc))
             return
 
+        if result.compilation_log:
+            self.write_output("LaTeX Compilation Output:")
+            for line in result.compilation_log.splitlines():
+                self.write_output(line)
+
         lines = [f"Generated TeX: {result.tex_path}"]
         if result.pdf_path:
             lines.append(f"Generated PDF: {result.pdf_path}")
         if result.compilation_message:
             lines.append(result.compilation_message)
-        messagebox.showinfo("Render Complete", "\n".join(lines), parent=self.root)
+        self.write_output("Render Complete:")
+        for line in lines:
+            self.write_output(line)
 
     def refresh_after_change(self, category: str, cite_key: Optional[str]) -> None:
         self.current_category = category
@@ -668,6 +701,17 @@ class PyBibCVApp:
 
     def show_error(self, message: str) -> None:
         messagebox.showerror("pyBibCV", message, parent=self.root)
+
+    def write_output(self, message: str) -> None:
+        self.output_text.config(state="normal")
+        self.output_text.insert("end", message.rstrip() + "\n")
+        self.output_text.see("end")
+        self.output_text.config(state="disabled")
+
+    def clear_output(self) -> None:
+        self.output_text.config(state="normal")
+        self.output_text.delete("1.0", "end")
+        self.output_text.config(state="disabled")
 
 
 def build_app(root_dir: Optional[Path] = None) -> tuple[tk.Tk, PyBibCVApp]:

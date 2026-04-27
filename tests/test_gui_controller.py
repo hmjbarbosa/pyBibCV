@@ -2,8 +2,9 @@ import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
+from types import SimpleNamespace
 
-from gui import build_app
+from gui import PyBibCVApp, build_app
 from src.gui_controller import GUIController
 from src.import_ops import DOIImportError
 
@@ -146,6 +147,74 @@ class GUIControllerTests(unittest.TestCase):
     def test_rendering_through_gui_connected_logic(self) -> None:
         result = self.controller.render(output_name="gui_controller_cv", compile_pdf=False)
         self.assertTrue(result.tex_path.exists())
+
+    def test_output_helper_appends_and_clears_text(self) -> None:
+        class FakeText:
+            def __init__(self) -> None:
+                self.contents = ""
+
+            def config(self, **kwargs: str) -> None:
+                return None
+
+            def insert(self, index: str, text: str) -> None:
+                self.contents += text
+
+            def see(self, index: str) -> None:
+                return None
+
+            def delete(self, start: str, end: str) -> None:
+                self.contents = ""
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.output_text = FakeText()
+
+        app.write_output("First line")
+        app.write_output("Second line")
+        self.assertIn("First line\nSecond line\n", app.output_text.contents)
+
+        app.clear_output()
+        self.assertEqual(app.output_text.contents, "")
+
+    def test_render_output_includes_compilation_transcript(self) -> None:
+        class FakeText:
+            def __init__(self) -> None:
+                self.contents = ""
+
+            def config(self, **kwargs: str) -> None:
+                return None
+
+            def insert(self, index: str, text: str) -> None:
+                self.contents += text
+
+            def see(self, index: str) -> None:
+                return None
+
+            def delete(self, start: str, end: str) -> None:
+                self.contents = ""
+
+        fake_result = SimpleNamespace(
+            tex_path=Path("/tmp/example.tex"),
+            pdf_path=Path("/tmp/example.pdf"),
+            compilation_message="PDF compilation succeeded using xelatex.",
+            compilation_log="$ xelatex -interaction=nonstopmode -halt-on-error example.tex\nThis is XeTeX",
+        )
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.root = object()
+        app.controller = mock.Mock()
+        app.controller.render.return_value = fake_result
+        app.output_text = FakeText()
+
+        with mock.patch("gui.simpledialog.askstring", return_value="example"), mock.patch(
+            "gui.messagebox.askyesno",
+            return_value=True,
+        ):
+            app.render_cv()
+
+        self.assertIn("LaTeX Compilation Output:\n", app.output_text.contents)
+        self.assertIn("$ xelatex -interaction=nonstopmode -halt-on-error example.tex\n", app.output_text.contents)
+        self.assertIn("This is XeTeX\n", app.output_text.contents)
+        self.assertIn("Render Complete:\n", app.output_text.contents)
 
 
 if __name__ == "__main__":

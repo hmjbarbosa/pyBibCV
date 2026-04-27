@@ -261,6 +261,23 @@ class RenderOpsTests(unittest.TestCase):
 
         self.assertEqual(compiler, "xelatex")
 
+    def test_compile_pdf_includes_full_command_output_in_log(self) -> None:
+        tex_path = self.root / "output" / "compile_me.tex"
+        tex_path.parent.mkdir(exist_ok=True)
+        tex_path.write_text("\\documentclass{article}\\begin{document}Hi\\end{document}", encoding="utf-8")
+
+        completed = mock.Mock(returncode=0, stdout="This is XeTeX\nOutput written on compile_me.pdf", stderr="")
+        with mock.patch("src.render_ops.shutil.which", return_value="/usr/bin/xelatex"), mock.patch(
+            "src.render_ops.subprocess.run",
+            return_value=completed,
+        ):
+            pdf_path, message, log_output = self.renderer.compile_pdf(tex_path)
+
+        self.assertEqual(pdf_path, tex_path.with_suffix(".pdf"))
+        self.assertIn("PDF compilation succeeded using xelatex.", message)
+        self.assertIn("$ xelatex -interaction=nonstopmode -halt-on-error compile_me.tex", log_output)
+        self.assertIn("This is XeTeX", log_output)
+
 
 if __name__ == "__main__":
     unittest.main()

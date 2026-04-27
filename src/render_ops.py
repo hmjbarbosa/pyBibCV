@@ -14,6 +14,7 @@ class RenderResult:
     tex_path: Path
     pdf_path: Optional[Path]
     compilation_message: str
+    compilation_log: str
 
 
 @dataclass
@@ -54,10 +55,16 @@ class CVRenderer:
 
         pdf_path = None
         compilation_message = "PDF compilation skipped."
+        compilation_log = ""
         if compile_pdf:
-            pdf_path, compilation_message = self.compile_pdf(tex_path)
+            pdf_path, compilation_message, compilation_log = self.compile_pdf(tex_path)
 
-        return RenderResult(tex_path=tex_path, pdf_path=pdf_path, compilation_message=compilation_message)
+        return RenderResult(
+            tex_path=tex_path,
+            pdf_path=pdf_path,
+            compilation_message=compilation_message,
+            compilation_log=compilation_log,
+        )
 
     def render_tex(
         self,
@@ -284,10 +291,10 @@ class CVRenderer:
         rendered = re.sub(r"\s+,", ",", rendered)
         return rendered.strip(" ,;")
 
-    def compile_pdf(self, tex_path: Path) -> Tuple[Optional[Path], str]:
+    def compile_pdf(self, tex_path: Path) -> Tuple[Optional[Path], str, str]:
         compiler = self.find_latex_compiler(self.latex_engine)
         if compiler is None:
-            return None, "No LaTeX compiler was found. The .tex file was generated successfully."
+            return None, "No LaTeX compiler was found. The .tex file was generated successfully.", ""
 
         command = self.build_compile_command(compiler, tex_path)
         completed = subprocess.run(
@@ -297,12 +304,13 @@ class CVRenderer:
             text=True,
             check=False,
         )
+        log_output = self.format_compilation_log(command, completed.stdout, completed.stderr)
         if completed.returncode != 0:
             error_output = completed.stderr.strip() or completed.stdout.strip() or "Unknown LaTeX error."
-            return None, f"LaTeX compilation failed: {error_output}"
+            return None, f"LaTeX compilation failed: {error_output}", log_output
 
         pdf_path = tex_path.with_suffix(".pdf")
-        return pdf_path, f"PDF compilation succeeded using {compiler}."
+        return pdf_path, f"PDF compilation succeeded using {compiler}.", log_output
 
     @staticmethod
     def build_compile_command(compiler: str, tex_path: Path) -> List[str]:
@@ -312,6 +320,16 @@ class CVRenderer:
         if compiler == "xelatex":
             return ["xelatex", "-interaction=nonstopmode", "-halt-on-error", filename]
         return [compiler, "-interaction=nonstopmode", "-halt-on-error", filename]
+
+    @staticmethod
+    def format_compilation_log(command: List[str], stdout: str, stderr: str) -> str:
+        lines = [f"$ {' '.join(command)}"]
+        if stdout.strip():
+            lines.append(stdout.rstrip())
+        if stderr.strip():
+            lines.append("[stderr]")
+            lines.append(stderr.rstrip())
+        return "\n".join(lines).strip()
 
     @staticmethod
     def find_latex_compiler(preferred_compiler: str = "xelatex") -> Optional[str]:
