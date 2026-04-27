@@ -380,6 +380,7 @@ class PyBibCVApp:
             ("Validate", self.run_validation),
             ("Normalize", self.run_normalization),
             ("Render", self.render_cv),
+            ("Quit", self.root.destroy),
         ]
         for label, command in buttons:
             ttk.Button(toolbar, text=label, command=command).pack(side="left", padx=(0, 6))
