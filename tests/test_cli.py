@@ -3,6 +3,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import cli
 
 
 TEST_CONFIG = """{
@@ -138,6 +141,33 @@ class CLITests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("Updated Talk Title", updated)
         self.assertIn("existing: misc", completed.stdout)
+
+    def test_repl_enables_readline_when_available(self) -> None:
+        fake_readline = mock.Mock()
+        with mock.patch.object(cli, "readline", fake_readline):
+            cli.CVCLI.enable_line_editing()
+
+        fake_readline.parse_and_bind.assert_any_call("tab: complete")
+        fake_readline.parse_and_bind.assert_any_call("set editing-mode emacs")
+
+    def test_repl_history_adds_nonempty_command(self) -> None:
+        fake_readline = mock.Mock()
+        fake_readline.get_current_history_length.return_value = 0
+
+        with mock.patch.object(cli, "readline", fake_readline):
+            cli.CVCLI.add_history_entry("list talks")
+
+        fake_readline.add_history.assert_called_once_with("list talks")
+
+    def test_repl_history_skips_duplicate_consecutive_command(self) -> None:
+        fake_readline = mock.Mock()
+        fake_readline.get_current_history_length.return_value = 1
+        fake_readline.get_history_item.return_value = "list talks"
+
+        with mock.patch.object(cli, "readline", fake_readline):
+            cli.CVCLI.add_history_entry("list talks")
+
+        fake_readline.add_history.assert_not_called()
 
 
 if __name__ == "__main__":

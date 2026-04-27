@@ -3,6 +3,11 @@ import shlex
 from pathlib import Path
 from typing import Dict, List, Optional
 
+try:
+    import readline
+except ImportError:  # pragma: no cover - depends on platform Python build
+    readline = None  # type: ignore[assignment]
+
 from src.bibtex_ops import BibTeXManager, NormalizationChange, ParsedEntry
 from src.import_ops import DOIImportError, ImportManager
 from src.render_ops import CVRenderer, RenderResult
@@ -330,11 +335,13 @@ class CVCLI:
         return field_name.replace("_", " ").title()
 
     def repl(self) -> int:
+        self.enable_line_editing()
         self.print_help()
         while True:
             raw = input("pyBibCV> ").strip()
             if not raw:
                 continue
+            self.add_history_entry(raw)
             parts = shlex.split(raw)
             command = parts[0]
             category = parts[1] if len(parts) > 1 and not parts[1].startswith("-") else None
@@ -342,6 +349,27 @@ class CVCLI:
             should_exit = self.run(command, category, parts[option_start:])
             if should_exit == 1:
                 return 0
+
+    @staticmethod
+    def enable_line_editing() -> None:
+        """Enable shell-style line editing and in-memory history when readline is available."""
+        if readline is None:
+            return
+
+        readline.parse_and_bind("tab: complete")
+        readline.parse_and_bind("set editing-mode emacs")
+
+    @staticmethod
+    def add_history_entry(raw: str) -> None:
+        if readline is None or not raw:
+            return
+
+        previous = None
+        history_length = readline.get_current_history_length()
+        if history_length > 0:
+            previous = readline.get_history_item(history_length)
+        if raw != previous:
+            readline.add_history(raw)
 
     def print_help(self) -> None:
         print("Commands:")
