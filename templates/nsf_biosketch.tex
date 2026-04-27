@@ -1,0 +1,28 @@
+\documentclass[11pt]{article}
+\usepackage[margin=0.8in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{etaremune}
+
+\title{Selected Contributions and Current Activity}
+\author{<<AUTHOR_NAME>>}
+\date{Generated on <<GENERATED_ON>>}
+
+\begin{document}
+\maketitle
+
+\section*{Professional Preparation}
+This compact biosketch-style template demonstrates how free text and generated entry lists can be mixed in a single LaTeX-native template. It is intentionally selective rather than exhaustive.
+
+\section*{Selected Publications}
+The following publications are recent scholarly products selected from the full bibliography.
+
+\CVList[collection=publications, select=after(2023), sort=year_desc, limit=5, list=enumerate, format="<<author>>, <<year>>: <<title>>, <<journal>>, <<booktitle>>, <<doi>>"]
+
+\section*{Recent Talks}
+The following talks show recent dissemination activity.
+
+\CVList[collection=talks, select=after(2024), sort=year_desc, limit=3, list=itemize, format="<<title>>, <<note>>, <<year>>"]
+
+\end{document}

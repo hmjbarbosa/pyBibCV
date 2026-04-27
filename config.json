@@ -13,7 +13,7 @@
     "grants": ["entry_type", "cite_key", "title", "author", "year"],
     "students": ["entry_type", "cite_key", "title", "author", "year"]
   },
-  "template_name": "basic_cv",
+  "template_name": "nsf_biosketch",
   "latex_engine": "xelatex",
   "output_dir": "output",
   "author_name": "Sample Academic"

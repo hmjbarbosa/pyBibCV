@@ -207,16 +207,20 @@ class BibTeXManager:
 
     def expected_render_fields(self, category: str) -> List[str]:
         template_name = self.config.get("template_name", "basic_cv")
-        template_path = self.root_dir / "templates" / f"{template_name}.json"
+        template_path = self.root_dir / "templates" / f"{template_name}.tex"
         if not template_path.exists():
             return []
 
-        raw_spec = json.loads(template_path.read_text(encoding="utf-8"))
+        template_text = template_path.read_text(encoding="utf-8")
         expected_fields: List[str] = []
-        for section_spec in raw_spec.get("sections", {}).values():
-            if section_spec.get("category") != category:
+        for options_text in re.findall(r"\\CVList\[(.*?)\]", template_text, flags=re.DOTALL):
+            collection_match = re.search(r"collection\s*=\s*([^,\]]+)", options_text)
+            if not collection_match or collection_match.group(1).strip() != category:
                 continue
-            placeholders = re.findall(r"<<([^>]+)>>", section_spec.get("format", ""))
+            format_match = re.search(r'format\s*=\s*"([^"]*)"', options_text, flags=re.DOTALL)
+            if not format_match:
+                continue
+            placeholders = re.findall(r"<<([^>]+)>>", format_match.group(1))
             for placeholder in placeholders:
                 if placeholder not in expected_fields:
                     expected_fields.append(placeholder)

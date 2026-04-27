@@ -9,10 +9,10 @@
 - `src/bibtex_ops.py`: BibTeX parsing, formatting, loading, and linting
 - `src/gui_controller.py`: thin controller layer shared by the Tkinter GUI and GUI-focused tests
 - `src/import_ops.py`: DOI import and BibTeX import helpers
-- `src/render_ops.py`: CV section grouping, filtering, LaTeX rendering, and optional PDF compilation
+- `src/render_ops.py`: LaTeX-native `\CVList[...]` directive parsing, rendering, and optional PDF compilation
 - `config.json`: app-level settings such as category file paths, required fields, the default template name, output settings, and author defaults
 - `data/`: source `.bib` files
-- `templates/`: paired LaTeX templates and template JSON configuration
+- `templates/`: LaTeX templates with embedded `\CVList[...]` directives
 - `output/`: generated `.tex`, `.pdf`, and LaTeX auxiliary files
 - `tests/`: automated CLI and rendering tests
 
@@ -159,34 +159,79 @@ The GUI is intentionally practical rather than highly styled. It is designed to 
 
 ## How rendering works
 
-The `render` command reads the configured BibTeX files, then loads a matching template pair from `templates/`: a LaTeX skeleton such as `basic_cv.tex` and a JSON spec such as `basic_cv.json`. The JSON spec defines which sections appear, which BibTeX category feeds each section, how entries are formatted with field placeholders, and which list style each section uses. The generated `.tex` file is written to `output/`.
+The `render` command reads the configured BibTeX files and then loads a LaTeX template from `templates/`. The template remains normal LaTeX, but it may contain special renderer directives of the form:
+
+```latex
+\CVList[collection=publications, sort=year_desc, list=enumerate, format="<<author>>, <<year>>: <<title>>"]
+```
+
+During rendering, the program:
+
+1. reads the template text
+2. finds each `\CVList[...]` directive
+3. validates the directive options
+4. loads the requested BibTeX collection
+5. applies filtering, sorting, and limits
+6. formats the selected entries into a LaTeX list
+7. replaces the directive with the generated LaTeX
+
+Ordinary LaTeX text outside those directives is left unchanged. The final `.tex` file is written to `output/`.
 
 By default, the renderer uses the template named by `template_name` in `config.json`. You can still override that choice for a single run with `--template`.
 
-## Template configuration
+## Template directives
 
-Each template JSON file can define:
+Milestone 5 removed the old JSON template configuration approach. Templates are now LaTeX-only and use embedded directives.
 
-- `document_title`: title inserted into the LaTeX document
-- `sections`: ordered section definitions
+The renderer currently supports exactly this directive:
 
-Each section definition can define:
+- `\CVList[...]`
 
-- `category`: BibTeX category name such as `publications`
-- `list`: `itemize`, `enumerate`, or `reverse-enumerate`
-- `format`: text pattern using placeholders like `<<author>>` or `<<title>>`
+Supported directive options:
 
-This keeps app-level configuration separate from template/style decisions.
+- `collection`
+- `select`
+- `sort`
+- `limit`
+- `list`
+- `format`
+
+Supported `select` forms:
+
+- `select=all`
+- `select=field(name,value)`
+- `select=after(year)`
+- multiple rules separated by `;`, for example `select=field(top5,yes);after(2020)`
+
+Supported `sort` values:
+
+- `year`
+- `year_desc`
+- `lastname`
+
+Supported `list` values:
+
+- `itemize`
+- `enumerate`
+- `etaremune`
+
+Placeholders such as `<<author>>`, `<<year>>`, and `<<title>>` are replaced from BibTeX fields. Missing placeholders resolve to empty strings.
+
+Current template examples:
+
+- `templates/basic_cv.tex`: full CV-style template
+- `templates/nsf_biosketch.tex`: more selective biosketch-style template
 
 ## Optional PDF compilation
 
 If you run `render --compile`, the program looks for one of these tools:
 
+- the configured preferred engine from `config.json`
 - `latexmk`
 - `xelatex`
 - `pdflatex`
 
-If one is installed, it will be used to try to compile the generated `.tex` file into a PDF. If no LaTeX compiler is available, the command still succeeds in generating the `.tex` file and reports that PDF compilation was skipped.
+If one is installed, it will be used to try to compile the generated `.tex` file into a PDF. The default configuration prefers `xelatex` because it handles Unicode content better. If no LaTeX compiler is available, the command still succeeds in generating the `.tex` file and reports that PDF compilation was skipped.
 
 ## Generated files
 

@@ -4,7 +4,6 @@
 \usepackage{lmodern}
 \usepackage{hyperref}
 \usepackage{etaremune}
-\usepackage[utf8x]{inputenc}
 
 \title{<<DOCUMENT_TITLE>>}
 \author{<<AUTHOR_NAME>>}
@@ -15,7 +14,19 @@
 \tableofcontents
 \bigskip
 
-<<SECTIONS_CONTENT>>
+\section*{Publications}
+\CVList[collection=publications, sort=year_desc, list=enumerate, format="<<author>>, <<year>>: <<title>>, <<journal>>, <<booktitle>>"]
 
+\section*{Talks}
+\CVList[collection=talks, sort=year_desc, list=itemize, format="<<title>>, <<note>>, <<year>>"]
+
+\section*{Service}
+\CVList[collection=service, sort=year_desc, list=itemize, format="<<title>>, <<note>>, <<year>>"]
+
+\section*{Grants}
+\CVList[collection=grants, sort=year_desc, list=enumerate, format="<<title>>, <<author>>, <<institution>>, <<year>>"]
+
+\section*{Students}
+\CVList[collection=students, sort=year_desc, list=etaremune, format="<<author>>, <<title>>, <<school>>, <<year>>"]
 
 \end{document}

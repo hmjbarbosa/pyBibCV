@@ -25,33 +25,19 @@ TEST_CONFIG = """{
     "students": ["entry_type", "cite_key", "title", "author", "year"]
   },
   "template_name": "basic_cv",
+  "latex_engine": "xelatex",
   "output_dir": "output",
   "author_name": "Sample Academic"
 }"""
 
 TEST_TEMPLATE = r"""\documentclass{article}
 \begin{document}
-<<DOCUMENT_TITLE>>
-<<AUTHOR_NAME>>
-<<SECTIONS_CONTENT>>
+\section*{Publications}
+\CVList[collection=publications, sort=year_desc, list=enumerate, format="<<author>>, <<year>>: <<title>>, <<journal>>, <<booktitle>>"]
+\section*{Talks}
+\CVList[collection=talks, sort=year_desc, list=itemize, format="<<title>>, <<note>>, <<year>>"]
 \end{document}
 """
-
-TEST_TEMPLATE_JSON = """{
-  "document_title": "Curriculum Vitae",
-  "sections": {
-    "Publications": {
-      "category": "publications",
-      "list": "enumerate",
-      "format": "<<author>>, <<year>>: <<title>>, <<journal>>, <<booktitle>>"
-    },
-    "Talks": {
-      "category": "talks",
-      "list": "itemize",
-      "format": "<<title>>, <<note>>, <<year>>"
-    }
-  }
-}"""
 
 PUBLICATIONS_BIB = """@article{smith2024paper,
   title = {Existing Publication},
@@ -87,7 +73,6 @@ class Milestone3Tests(unittest.TestCase):
 
         (self.root / "config.json").write_text(TEST_CONFIG, encoding="utf-8")
         (self.root / "templates" / "basic_cv.tex").write_text(TEST_TEMPLATE, encoding="utf-8")
-        (self.root / "templates" / "basic_cv.json").write_text(TEST_TEMPLATE_JSON, encoding="utf-8")
         (self.root / "data" / "publications.bib").write_text(PUBLICATIONS_BIB, encoding="utf-8")
         (self.root / "data" / "talks.bib").write_text(TALKS_BIB, encoding="utf-8")
         (self.root / "data" / "service.bib").write_text("", encoding="utf-8")

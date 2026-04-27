@@ -22,27 +22,12 @@ TEST_CONFIG = """{
 
 TEST_TEMPLATE = r"""\documentclass{article}
 \begin{document}
-<<DOCUMENT_TITLE>>
-<<AUTHOR_NAME>>
-<<SECTIONS_CONTENT>>
+\section*{Publications}
+\CVList[collection=publications, sort=year_desc, list=enumerate, format="<<author>>, <<year>>: <<title>>"]
+\section*{Talks}
+\CVList[collection=talks, sort=year_desc, list=itemize, format="<<title>>, <<year>>"]
 \end{document}
 """
-
-TEST_TEMPLATE_JSON = """{
-  "document_title": "Curriculum Vitae",
-  "sections": {
-    "Publications": {
-      "category": "publications",
-      "list": "enumerate",
-      "format": "<<author>>, <<year>>: <<title>>"
-    },
-    "Talks": {
-      "category": "talks",
-      "list": "itemize",
-      "format": "<<title>>, <<year>>"
-    }
-  }
-}"""
 
 PUBLICATIONS_BIB = """@article{doe2024,
   title = {Recent Publication},
@@ -79,7 +64,6 @@ class CLITests(unittest.TestCase):
 
         (self.root / "config.json").write_text(TEST_CONFIG, encoding="utf-8")
         (self.root / "templates" / "basic_cv.tex").write_text(TEST_TEMPLATE, encoding="utf-8")
-        (self.root / "templates" / "basic_cv.json").write_text(TEST_TEMPLATE_JSON, encoding="utf-8")
         (self.root / "data" / "publications.bib").write_text(PUBLICATIONS_BIB, encoding="utf-8")
         (self.root / "data" / "talks.bib").write_text(TALKS_BIB, encoding="utf-8")
 

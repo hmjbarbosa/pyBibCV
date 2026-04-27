@@ -28,50 +28,51 @@ TEST_CONFIG = """{
   "author_name": "Sample Academic"
 }"""
 
-TEST_TEMPLATE = r"""\documentclass{article}
+DIRECTIVE_TEMPLATE = r"""\documentclass{article}
 \begin{document}
-<<DOCUMENT_TITLE>>
-<<AUTHOR_NAME>>
-<<SECTIONS_CONTENT>>
+Introductory free text.
+\CVList[collection=publications, select=all, sort=year_desc, limit=2, list=enumerate, format="<<author>>, <<year>>: <<title>>, <<journal>>"]
+\CVList[collection=talks, select=after(2024), sort=year, list=itemize, format="<<title>>, <<note>>, <<year>>"]
+\CVList[collection=students, select=all, sort=lastname, list=etaremune, format="<<author>>, <<title>>, <<school>>, <<year>>"]
 \end{document}
 """
 
-TEST_TEMPLATE_JSON = """{
-  "document_title": "Curriculum Vitae",
-  "sections": {
-    "Publications": {
-      "category": "publications",
-      "list": "enumerate",
-      "format": "<<author>>, <<year>>: <<title>>, <<journal>>"
-    },
-    "Talks": {
-      "category": "talks",
-      "list": "itemize",
-      "format": "<<title>>, <<note>>, <<year>>"
-    },
-    "Service": {
-      "category": "service",
-      "list": "itemize",
-      "format": "<<title>>, <<year>>"
-    },
-    "Students": {
-      "category": "students",
-      "list": "reverse-enumerate",
-      "format": "<<author>>, <<title>>, <<school>>, <<year>>"
-    },
-    "Missing": {
-      "category": "missing_category",
-      "list": "reverse-enumerate",
-      "format": "<<title>>, <<year>>"
-    }
-  }
-}"""
+MALFORMED_TEMPLATE = r"""\documentclass{article}
+\begin{document}
+\CVList[collection=publications, sort=year_desc, list=enumerate, format="<<title>>"
+\end{document}
+"""
+
+BASIC_TEMPLATE = r"""\documentclass{article}
+\begin{document}
+<<DOCUMENT_TITLE>>
+<<AUTHOR_NAME>>
+\section*{Publications}
+\CVList[collection=publications, sort=year_desc, list=enumerate, format="<<author>>, <<year>>: <<title>>, <<journal>>"]
+\section*{Talks}
+\CVList[collection=talks, sort=year_desc, list=itemize, format="<<title>>, <<note>>, <<year>>"]
+\section*{Service}
+\CVList[collection=service, sort=year_desc, list=itemize, format="<<title>>, <<year>>"]
+\section*{Students}
+\CVList[collection=students, sort=lastname, list=etaremune, format="<<author>>, <<title>>, <<school>>, <<year>>"]
+\end{document}
+"""
+
+NSF_TEMPLATE = r"""\documentclass{article}
+\begin{document}
+Selected outputs only.
+\CVList[collection=publications, select=after(2023), sort=year_desc, limit=1, list=enumerate, format="<<title>>, <<year>>"]
+Recent talks.
+\CVList[collection=talks, select=after(2024), sort=year_desc, limit=1, list=itemize, format="<<title>>, <<year>>"]
+\end{document}
+"""
 
 PUBLICATIONS_BIB = """@article{doe2024,
   title = {Recent Publication},
   author = {Jane Doe},
   year = {2024},
   journal = {Example Journal},
+  top5 = {yes},
 }
 
 @article{old2021,
@@ -87,6 +88,13 @@ TALKS_BIB = """@misc{talk2025,
   author = {Sam Speaker},
   year = {2025},
   note = {Research workflow seminar},
+}
+
+@misc{talk2023,
+  title = {Archived Talk},
+  author = {Jamie Speaker},
+  year = {2023},
+  note = {Older seminar},
 }
 """
 
@@ -106,8 +114,10 @@ class RenderOpsTests(unittest.TestCase):
         (self.root / "data").mkdir()
         (self.root / "templates").mkdir()
         (self.root / "config.json").write_text(TEST_CONFIG, encoding="utf-8")
-        (self.root / "templates" / "basic_cv.tex").write_text(TEST_TEMPLATE, encoding="utf-8")
-        (self.root / "templates" / "basic_cv.json").write_text(TEST_TEMPLATE_JSON, encoding="utf-8")
+        (self.root / "templates" / "directive_test.tex").write_text(DIRECTIVE_TEMPLATE, encoding="utf-8")
+        (self.root / "templates" / "malformed.tex").write_text(MALFORMED_TEMPLATE, encoding="utf-8")
+        (self.root / "templates" / "basic_cv.tex").write_text(BASIC_TEMPLATE, encoding="utf-8")
+        (self.root / "templates" / "nsf_biosketch.tex").write_text(NSF_TEMPLATE, encoding="utf-8")
         (self.root / "data" / "publications.bib").write_text(PUBLICATIONS_BIB, encoding="utf-8")
         (self.root / "data" / "talks.bib").write_text(TALKS_BIB, encoding="utf-8")
         (self.root / "data" / "service.bib").write_text("", encoding="utf-8")
@@ -121,59 +131,125 @@ class RenderOpsTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_collect_sections_loads_multiple_bib_files(self) -> None:
-        template_spec = self.renderer.load_template_spec("basic_cv")
-        sections = self.renderer.collect_sections(template_spec)
-        self.assertEqual(len(sections["Publications"]["entries"]), 2)
-        self.assertEqual(len(sections["Talks"]["entries"]), 1)
-        self.assertEqual(len(sections["Service"]["entries"]), 0)
+    def test_parsing_valid_cvlist_directive(self) -> None:
+        template_text = (self.root / "templates" / "directive_test.tex").read_text(encoding="utf-8")
+        directives = self.renderer.parse_directives(template_text)
+        self.assertEqual(len(directives), 3)
+        self.assertEqual(directives[0].collection, "publications")
+        self.assertEqual(directives[0].sort, "year_desc")
 
-    def test_filter_entries_by_min_year(self) -> None:
-        template_spec = self.renderer.load_template_spec("basic_cv")
-        sections = self.renderer.collect_sections(template_spec, min_year=2023)
-        self.assertEqual(len(sections["Publications"]["entries"]), 1)
-        self.assertEqual(sections["Publications"]["entries"][0]["cite_key"], "doe2024")
+    def test_detecting_malformed_directive_syntax(self) -> None:
+        template_text = (self.root / "templates" / "malformed.tex").read_text(encoding="utf-8")
+        with self.assertRaises(ValueError):
+            self.renderer.parse_directives(template_text)
 
-    def test_filter_entries_by_keyword(self) -> None:
-        template_spec = self.renderer.load_template_spec("basic_cv")
-        sections = self.renderer.collect_sections(template_spec, keyword="workflow")
-        self.assertEqual(len(sections["Talks"]["entries"]), 1)
-        self.assertEqual(len(sections["Publications"]["entries"]), 0)
+    def test_select_all(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=publications, select=all, sort=year_desc, list=enumerate, format="<<title>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertIn("Recent Publication", rendered)
+        self.assertIn("Older Publication", rendered)
 
-    def test_render_tex_includes_section_headers_and_entries(self) -> None:
-        template_spec = self.renderer.load_template_spec("basic_cv")
-        tex_content = self.renderer.render_tex("basic_cv", template_spec, self.renderer.collect_sections(template_spec))
-        self.assertIn("Publications", tex_content)
-        self.assertIn("Recent Publication", tex_content)
-        self.assertIn("No entries available.", tex_content)
-        self.assertIn("\\begin{enumerate}", tex_content)
-        self.assertIn("\\begin{etaremune}", tex_content)
+    def test_select_field_expression(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=publications, select=field(top5,yes), sort=year_desc, list=enumerate, format="<<title>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertIn("Recent Publication", rendered)
+        self.assertNotIn("Older Publication", rendered)
 
-    def test_collect_sections_handles_missing_category_mapping(self) -> None:
-        template_spec = self.renderer.load_template_spec("basic_cv")
-        sections = self.renderer.collect_sections(template_spec)
-        self.assertEqual(sections["Missing"]["entries"], [])
+    def test_select_after_expression(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=talks, select=after(2024), sort=year_desc, list=itemize, format="<<title>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertIn("Workflow Talk", rendered)
+        self.assertNotIn("Archived Talk", rendered)
 
-    def test_format_entry_uses_template_placeholders(self) -> None:
-        template_spec = self.renderer.load_template_spec("basic_cv")
-        publication_entry = self.manager.list_entries("publications")[0]
-        publication_spec = template_spec["sections"]["Publications"]
-        rendered = self.renderer.format_entry(publication_entry, publication_spec["format"])
+    def test_sort_year(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=publications, sort=year, list=enumerate, format="<<title>>, <<year>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertLess(rendered.find("Older Publication"), rendered.find("Recent Publication"))
+
+    def test_sort_year_desc(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=publications, sort=year_desc, list=enumerate, format="<<title>>, <<year>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertLess(rendered.find("Recent Publication"), rendered.find("Older Publication"))
+
+    def test_sort_lastname(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=students, sort=lastname, list=etaremune, format="<<author>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertIn("\\begin{etaremune}", rendered)
+
+    def test_limit_behavior(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=publications, sort=year_desc, limit=1, list=enumerate, format="<<title>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertIn("Recent Publication", rendered)
+        self.assertNotIn("Older Publication", rendered)
+
+    def test_list_itemize(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=talks, sort=year_desc, list=itemize, format="<<title>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertIn("\\begin{itemize}", rendered)
+
+    def test_list_enumerate(self) -> None:
+        directive = self.renderer.parse_directive(
+            'collection=publications, sort=year_desc, list=enumerate, format="<<title>>"'
+        )
+        rendered = self.renderer.render_directive(directive)
+        self.assertIn("\\begin{enumerate}", rendered)
+
+    def test_placeholder_substitution_in_format(self) -> None:
+        entry = self.manager.list_entries("publications")[0]
+        rendered = self.renderer.format_entry(entry, "<<author>>, <<year>>: <<title>>, <<journal>>")
         self.assertIn("Jane Doe", rendered)
         self.assertIn("Recent Publication", rendered)
         self.assertIn("Example Journal", rendered)
+
+    def test_missing_placeholder_field_handled_safely(self) -> None:
+        entry = self.manager.list_entries("publications")[0]
+        rendered = self.renderer.format_entry(entry, "<<title>>, <<volume>>, <<number>>")
+        self.assertIn("Recent Publication", rendered)
         self.assertNotIn("<<", rendered)
 
-    def test_render_writes_tex_file_even_without_pdf_compiler(self) -> None:
-        result = self.renderer.render(output_name="test_cv", compile_pdf=False)
-        self.assertTrue(result.tex_path.exists())
-        self.assertIsNone(result.pdf_path)
+    def test_rendering_migrated_basic_template(self) -> None:
+        tex_content = self.renderer.render_tex("basic_cv")
+        self.assertIn("\\section*{Publications}", tex_content)
+        self.assertIn("Recent Publication", tex_content)
+        self.assertIn("Workflow Talk", tex_content)
 
-    def test_render_uses_template_name_from_config_by_default(self) -> None:
-        result = self.renderer.render(output_name="default_template_cv", compile_pdf=False)
-        content = result.tex_path.read_text(encoding="utf-8")
-        self.assertIn("Curriculum Vitae", content)
-        self.assertIn("Publications", content)
+    def test_rendering_new_nsf_style_template(self) -> None:
+        tex_content = self.renderer.render_tex("nsf_biosketch")
+        self.assertIn("Selected outputs only.", tex_content)
+        self.assertIn("Recent Publication", tex_content)
+        self.assertNotIn("Older Publication", tex_content)
+
+    def test_template_free_text_remains_unchanged(self) -> None:
+        tex_content = self.renderer.render_tex("directive_test")
+        self.assertIn("Introductory free text.", tex_content)
+
+    def test_unknown_option_name_fails_clearly(self) -> None:
+        with self.assertRaises(ValueError):
+            self.renderer.parse_directive(
+                'collection=publications, sort=year_desc, list=enumerate, bogus=value, format="<<title>>"'
+            )
+
+    def test_invalid_limit_fails_clearly(self) -> None:
+        with self.assertRaises(ValueError):
+            self.renderer.parse_directive(
+                'collection=publications, sort=year_desc, limit=nope, list=enumerate, format="<<title>>"'
+            )
 
     def test_find_latex_compiler_prefers_configured_engine(self) -> None:
         def fake_which(name: str) -> str:
