@@ -8,16 +8,18 @@ try:
 except ImportError:  # pragma: no cover - depends on platform Python build
     readline = None  # type: ignore[assignment]
 
-from src.bibtex_ops import BibTeXManager, NormalizationChange, ParsedEntry
+from src.bibtex_ops import BibTeXManager, ParsedEntry
+from src.check_ops import CheckReport, ProjectChecker
 from src.import_ops import DOIImportError, ImportManager
 from src.render_ops import CVRenderer, RenderResult
 
 
 class CVCLI:
-    def __init__(self, manager: BibTeXManager, renderer: CVRenderer, importer: ImportManager):
+    def __init__(self, manager: BibTeXManager, renderer: CVRenderer, importer: ImportManager, checker: ProjectChecker):
         self.manager = manager
         self.renderer = renderer
         self.importer = importer
+        self.checker = checker
 
     def run(self, command: str, category: Optional[str] = None, options: Optional[List[str]] = None) -> int:
         option_list = options or []
@@ -25,8 +27,8 @@ class CVCLI:
             return self.handle_add(category)
         if command == "list":
             return self.handle_list(category)
-        if command == "lint":
-            return self.handle_lint(category)
+        if command == "check":
+            return self.handle_check(category)
         if command == "render":
             return self.handle_render(category, option_list)
         if command == "show":
@@ -37,8 +39,6 @@ class CVCLI:
             return self.handle_import_doi(category, option_list)
         if command == "import-bibtex":
             return self.handle_import_bibtex(category, option_list)
-        if command == "normalize":
-            return self.handle_normalize(category, option_list)
         if command in {"help", "?"}:
             self.print_help()
             return 0
@@ -106,21 +106,9 @@ class CVCLI:
             print(f"   Year: {fields.get('year', '(missing)')}")
         return 0
 
-    def handle_lint(self, category: Optional[str]) -> int:
-        try:
-            issues = self.manager.lint_category(category) if category else self.manager.lint_all()
-        except ValueError as exc:
-            print(exc)
-            return 0
-
-        if not issues:
-            target = category if category else "all categories"
-            print(f"No lint issues found in {target}.")
-            return 0
-
-        print("Lint issues:")
-        for issue in issues:
-            print(f"- {issue}")
+    def handle_check(self, category: Optional[str]) -> int:
+        report = self.checker.run(category)
+        self.print_check_report(report)
         return 0
 
     def handle_render(self, category: Optional[str], options: List[str]) -> int:
@@ -214,31 +202,6 @@ class CVCLI:
         print(f"Imported {len(imported_entries)} BibTeX entr{'y' if len(imported_entries) == 1 else 'ies'} into '{args.category}'.")
         for entry in imported_entries:
             self.print_entry(entry)
-        return 0
-
-    def handle_normalize(self, category: Optional[str], options: List[str]) -> int:
-        parser = build_normalize_parser()
-        try:
-            args = parser.parse_args(([category] if category else []) + options)
-        except SystemExit:
-            return 0
-
-        try:
-            changes, warnings = self.manager.normalize_collection(args.category, dry_run=not args.apply)
-        except ValueError as exc:
-            print(exc)
-            return 0
-
-        if not changes and not warnings:
-            print(f"No normalization changes needed in '{args.category}'.")
-            return 0
-
-        mode = "Applying" if args.apply else "Dry run for"
-        print(f"{mode} normalization in '{args.category}':")
-        for change in changes:
-            self.print_normalization_change(change)
-        for warning in warnings:
-            print(f"Warning: {warning}")
         return 0
 
     def handle_edit_interactive(self, category: str, cite_key: str) -> int:
@@ -375,13 +338,12 @@ class CVCLI:
         print("Commands:")
         print("  add <category>             - prompt for entry fields and append a BibTeX entry")
         print("  list <category>            - display all entries in a category")
-        print("  lint [category]            - validate one category or all configured BibTeX files")
+        print("  check [category]           - inspect config, templates, and BibTeX data without modifying files")
         print("  render [options]           - build a LaTeX CV and optionally compile a PDF")
         print("  show <category> <key>      - display one entry")
         print("  edit <category> <key>      - modify fields on an existing entry")
         print("  import-doi <category> DOI  - import metadata from a DOI")
         print("  import-bibtex <category>   - import BibTeX from a file or string")
-        print("  normalize <category>       - preview or apply conservative cleanup rules")
         print("  help                       - show this message")
         print("  exit                       - quit interactive mode")
 
@@ -398,11 +360,30 @@ class CVCLI:
             print(result.compilation_message)
 
     @staticmethod
-    def print_normalization_change(change: NormalizationChange) -> None:
-        if change["action"] == "remove":
-            print(f"- {change['cite_key']}: remove {change['field']} (was '{change['old']}')")
-        else:
-            print(f"- {change['cite_key']}: set {change['field']} from '{change['old']}' to '{change['new']}'")
+    def print_check_report(report: CheckReport) -> None:
+        if not report.has_findings():
+            print("No check issues found.")
+            return
+
+        if report.configuration_issues:
+            print("Configuration issues:")
+            for issue in report.configuration_issues:
+                print(f"- {issue}")
+
+        if report.data_validity_errors:
+            print("Data validity errors:")
+            for issue in report.data_validity_errors:
+                print(f"- {issue}")
+
+        if report.data_quality_warnings:
+            print("Data quality warnings:")
+            for issue in report.data_quality_warnings:
+                print(f"- {issue}")
+
+        if report.template_coverage_warnings:
+            print("Template coverage warnings:")
+            for issue in report.template_coverage_warnings:
+                print(f"- {issue}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -460,24 +441,16 @@ def build_import_bibtex_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_normalize_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="normalize", add_help=False)
-    parser.add_argument("category")
-    mode_group = parser.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument("--dry-run", action="store_true")
-    mode_group.add_argument("--apply", action="store_true")
-    return parser
-
-
 def main() -> int:
     manager = BibTeXManager(Path(__file__).resolve().parent)
     manager.ensure_storage()
     renderer = CVRenderer(Path(__file__).resolve().parent, manager)
     importer = ImportManager(manager)
+    checker = ProjectChecker(Path(__file__).resolve().parent, manager, renderer)
 
     parser = build_parser()
     args, extra_args = parser.parse_known_args()
-    cli = CVCLI(manager, renderer, importer)
+    cli = CVCLI(manager, renderer, importer, checker)
 
     if args.command:
         return cli.run(args.command, args.category, extra_args)

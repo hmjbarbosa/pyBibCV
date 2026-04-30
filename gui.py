@@ -2,7 +2,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from src.bibtex_ops import BibTeXManager, ParsedEntry
 from src.gui_controller import GUIController
@@ -268,66 +268,6 @@ class BibTeXImportFileDialog(tk.Toplevel):
         self.destroy()
 
 
-class ValidationDialog(tk.Toplevel):
-    def __init__(self, master: tk.Misc, categories: List[str], default_category: Optional[str] = None):
-        super().__init__(master)
-        self.title("Validate")
-        self.result = None
-        self.confirmed = False
-        self.transient(master)
-        self.grab_set()
-
-        options = ["(all collections)"] + categories
-        selected = default_category if default_category in categories else "(all collections)"
-        self.category_var = tk.StringVar(value=selected)
-        ttk.Label(self, text="Collection").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
-        ttk.Combobox(self, textvariable=self.category_var, values=options, state="readonly").grid(
-            row=0, column=1, sticky="ew", padx=8, pady=(8, 4)
-        )
-
-        button_frame = ttk.Frame(self)
-        button_frame.grid(row=1, column=0, columnspan=2, sticky="e", padx=8, pady=8)
-        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=(8, 0))
-        ttk.Button(button_frame, text="Validate", command=self.on_validate).pack(side="right")
-        self.columnconfigure(1, weight=1)
-
-    def on_validate(self) -> None:
-        category = self.category_var.get().strip()
-        self.confirmed = True
-        self.result = None if category == "(all collections)" else category
-        self.destroy()
-
-
-class NormalizeDialog(tk.Toplevel):
-    def __init__(self, master: tk.Misc, categories: List[str], default_category: Optional[str] = None):
-        super().__init__(master)
-        self.title("Normalize")
-        self.result: Optional[Tuple[str, bool]] = None
-        self.transient(master)
-        self.grab_set()
-
-        self.category_var = tk.StringVar(value=default_category or (categories[0] if categories else ""))
-        ttk.Label(self, text="Collection").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
-        ttk.Combobox(self, textvariable=self.category_var, values=categories, state="readonly").grid(
-            row=0, column=1, sticky="ew", padx=8, pady=(8, 4)
-        )
-
-        button_frame = ttk.Frame(self)
-        button_frame.grid(row=1, column=0, columnspan=2, sticky="e", padx=8, pady=8)
-        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=(8, 0))
-        ttk.Button(button_frame, text="Apply", command=lambda: self.finish(True)).pack(side="right", padx=(8, 0))
-        ttk.Button(button_frame, text="Dry Run", command=lambda: self.finish(False)).pack(side="right")
-        self.columnconfigure(1, weight=1)
-
-    def finish(self, apply_changes: bool) -> None:
-        category = self.category_var.get().strip()
-        if not category:
-            messagebox.showerror("Missing Collection", "Choose a target collection.", parent=self)
-            return
-        self.result = (category, apply_changes)
-        self.destroy()
-
-
 class PyBibCVApp:
     def __init__(self, root: tk.Tk, controller: GUIController):
         self.root = root
@@ -358,8 +298,7 @@ class PyBibCVApp:
         entry_menu.add_command(label="Import DOI", command=self.import_doi)
         entry_menu.add_command(label="Import BibTeX Text", command=self.import_bibtex_text)
         entry_menu.add_command(label="Import BibTeX File", command=self.import_bibtex_file)
-        entry_menu.add_command(label="Validate", command=self.run_validation)
-        entry_menu.add_command(label="Normalize", command=self.run_normalization)
+        entry_menu.add_command(label="Check", command=self.run_check)
         menu_bar.add_cascade(label="Actions", menu=entry_menu)
 
         self.root.config(menu=menu_bar)
@@ -377,8 +316,7 @@ class PyBibCVApp:
             ("Import DOI", self.import_doi),
             ("Import BibTeX Text", self.import_bibtex_text),
             ("Import BibTeX File", self.import_bibtex_file),
-            ("Validate", self.run_validation),
-            ("Normalize", self.run_normalization),
+            ("Check", self.run_check),
             ("Render", self.render_cv),
             ("Quit", self.root.destroy),
         ]
@@ -589,57 +527,36 @@ class PyBibCVApp:
             f"Imported {len(imported_entries)} entr{'y' if len(imported_entries) == 1 else 'ies'} into '{dialog.result['category']}'."
         )
 
-    def run_validation(self) -> None:
-        dialog = ValidationDialog(self.root, self.controller.collections(), default_category=self.current_category)
-        self.root.wait_window(dialog)
-        if not dialog.confirmed:
-            return
-        category = dialog.result
+    def run_check(self) -> None:
         try:
-            issues = self.controller.validate(category)
+            report = self.controller.check()
         except Exception as exc:
             self.show_error(str(exc))
             return
 
-        if not issues:
-            target = category or "all collections"
-            self.write_output(f"No validation issues found in {target}.")
-            return
-        self.write_output("Validation Results:")
-        for issue in issues:
-            self.write_output(f"- {issue}")
-
-    def run_normalization(self) -> None:
-        dialog = NormalizeDialog(self.root, self.controller.collections(), default_category=self.current_category)
-        self.root.wait_window(dialog)
-        if not dialog.result:
-            return
-        category, apply_changes = dialog.result
-        try:
-            changes, warnings = self.controller.normalize(category, apply_changes=apply_changes)
-        except Exception as exc:
-            self.show_error(str(exc))
+        if not report.has_findings():
+            self.write_output("No check issues found.")
             return
 
-        if apply_changes:
-            self.refresh_after_change(category, self.current_entry_key)
+        if report.configuration_issues:
+            self.write_output("Configuration issues:")
+            for issue in report.configuration_issues:
+                self.write_output(f"- {issue}")
 
-        lines = []
-        for change in changes:
-            if change["action"] == "remove":
-                lines.append(f"{change['cite_key']}: remove {change['field']} (was '{change['old']}')")
-            else:
-                lines.append(f"{change['cite_key']}: set {change['field']} from '{change['old']}' to '{change['new']}'")
-        for warning in warnings:
-            lines.append(f"Warning: {warning}")
+        if report.data_validity_errors:
+            self.write_output("Data validity errors:")
+            for issue in report.data_validity_errors:
+                self.write_output(f"- {issue}")
 
-        if not lines:
-            lines.append(f"No normalization changes needed in '{category}'.")
+        if report.data_quality_warnings:
+            self.write_output("Data quality warnings:")
+            for issue in report.data_quality_warnings:
+                self.write_output(f"- {issue}")
 
-        title = "Normalization Applied" if apply_changes else "Normalization Preview"
-        self.write_output(f"{title} for '{category}':")
-        for line in lines:
-            self.write_output(line)
+        if report.template_coverage_warnings:
+            self.write_output("Template coverage warnings:")
+            for issue in report.template_coverage_warnings:
+                self.write_output(f"- {issue}")
 
     def render_cv(self) -> None:
         output_name = simpledialog.askstring("Render CV", "Output base name:", initialvalue="cv", parent=self.root)

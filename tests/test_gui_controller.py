@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from gui import PyBibCVApp, build_app
+from src.check_ops import CheckReport
 from src.gui_controller import GUIController
 from src.import_ops import DOIImportError
 
@@ -89,6 +90,10 @@ class GUIControllerTests(unittest.TestCase):
         tk_ctor.assert_called_once()
         app_ctor.assert_called_once()
 
+    def test_gui_no_longer_exposes_validate_or_normalize_actions(self) -> None:
+        self.assertFalse(hasattr(PyBibCVApp, "run_validation"))
+        self.assertFalse(hasattr(PyBibCVApp, "run_normalization"))
+
     def test_add_and_edit_through_gui_connected_logic(self) -> None:
         added = self.controller.add_entry(
             "talks",
@@ -130,19 +135,10 @@ class GUIControllerTests(unittest.TestCase):
         self.assertEqual(len(imported), 1)
         self.assertEqual(imported[0]["cite_key"], "guiimport")
 
-    def test_validation_through_gui_connected_logic(self) -> None:
-        issues = self.controller.validate("talks")
-        self.assertIn("missing required field 'year'", "\n".join(issues))
-
-    def test_normalization_through_gui_connected_logic(self) -> None:
-        preview_changes, preview_warnings = self.controller.normalize("talks", apply_changes=False)
-        apply_changes, _ = self.controller.normalize("talks", apply_changes=True)
-        updated_entry = self.controller.get_entry("talks", "talk2026")
-
-        self.assertTrue(preview_changes or preview_warnings)
-        self.assertEqual(len(preview_changes), len(apply_changes))
-        self.assertEqual(updated_entry["fields"]["year"], "2026")
-        self.assertEqual(updated_entry["fields"]["note"], "Sample Meeting")
+    def test_check_through_gui_connected_logic(self) -> None:
+        report = self.controller.check()
+        self.assertIn("talks entry 1: missing required field 'year'", "\n".join(report.data_validity_errors))
+        self.assertTrue(report.template_coverage_warnings)
 
     def test_rendering_through_gui_connected_logic(self) -> None:
         result = self.controller.render(output_name="gui_controller_cv", compile_pdf=False)
@@ -215,6 +211,42 @@ class GUIControllerTests(unittest.TestCase):
         self.assertIn("$ xelatex -interaction=nonstopmode -halt-on-error example.tex\n", app.output_text.contents)
         self.assertIn("This is XeTeX\n", app.output_text.contents)
         self.assertIn("Render Complete:\n", app.output_text.contents)
+
+    def test_check_output_writes_sectioned_results(self) -> None:
+        class FakeText:
+            def __init__(self) -> None:
+                self.contents = ""
+
+            def config(self, **kwargs: str) -> None:
+                return None
+
+            def insert(self, index: str, text: str) -> None:
+                self.contents += text
+
+            def see(self, index: str) -> None:
+                return None
+
+            def delete(self, start: str, end: str) -> None:
+                self.contents = ""
+
+        fake_report = CheckReport(
+            configuration_issues=["Missing template file"],
+            data_validity_errors=["publications entry 1: missing required field 'year'"],
+            data_quality_warnings=["Duplicate title 'X' found in 'a' and 'b' in 'publications'."],
+            template_coverage_warnings=["Template 'basic_cv.tex' collection 'publications' entry 'a' is missing format field(s): doi."],
+        )
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.controller = mock.Mock()
+        app.controller.check.return_value = fake_report
+        app.output_text = FakeText()
+
+        app.run_check()
+
+        self.assertIn("Configuration issues:\n", app.output_text.contents)
+        self.assertIn("Data validity errors:\n", app.output_text.contents)
+        self.assertIn("Data quality warnings:\n", app.output_text.contents)
+        self.assertIn("Template coverage warnings:\n", app.output_text.contents)
 
 
 if __name__ == "__main__":

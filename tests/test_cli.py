@@ -62,6 +62,7 @@ class CLITests(unittest.TestCase):
         shutil.copy2(project_root / "cli.py", self.root / "cli.py")
         shutil.copy2(project_root / "src" / "__init__.py", self.root / "src" / "__init__.py")
         shutil.copy2(project_root / "src" / "bibtex_ops.py", self.root / "src" / "bibtex_ops.py")
+        shutil.copy2(project_root / "src" / "check_ops.py", self.root / "src" / "check_ops.py")
         shutil.copy2(project_root / "src" / "import_ops.py", self.root / "src" / "import_ops.py")
         shutil.copy2(project_root / "src" / "render_ops.py", self.root / "src" / "render_ops.py")
 
@@ -103,11 +104,11 @@ class CLITests(unittest.TestCase):
         self.assertIn("talk2025", completed.stdout)
         self.assertIn("Workflow Talk", completed.stdout)
 
-    def test_lint_runs_and_reports_results(self) -> None:
-        completed = self.run_cli("lint")
+    def test_check_runs_and_reports_results(self) -> None:
+        completed = self.run_cli("check")
 
         self.assertEqual(completed.returncode, 0)
-        self.assertIn("No lint issues found in all categories.", completed.stdout)
+        self.assertIn("No check issues found.", completed.stdout)
 
     def test_interactive_mode_starts_and_help_and_quit_work(self) -> None:
         completed = self.run_cli(user_input="help\nquit\n")
@@ -141,6 +142,18 @@ class CLITests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("Updated Talk Title", updated)
         self.assertIn("existing: misc", completed.stdout)
+
+    def test_lint_command_is_no_longer_user_facing(self) -> None:
+        completed = self.run_cli("lint")
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("Unknown command 'lint'.", completed.stdout)
+
+    def test_normalize_command_is_no_longer_user_facing(self) -> None:
+        completed = self.run_cli("normalize", "talks", "--dry-run")
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("Unknown command 'normalize'.", completed.stdout)
 
     def test_repl_enables_readline_when_available(self) -> None:
         fake_readline = mock.Mock()

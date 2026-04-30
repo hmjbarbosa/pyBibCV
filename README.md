@@ -6,7 +6,8 @@
 
 - `cli.py`: command-line interface and interactive prompt
 - `gui.py`: Tkinter desktop application entry point
-- `src/bibtex_ops.py`: BibTeX parsing, formatting, loading, and linting
+- `src/bibtex_ops.py`: BibTeX parsing, formatting, loading, and data-validity checks
+- `src/check_ops.py`: project-wide checking for configuration issues, data-validity errors, and template-coverage warnings
 - `src/gui_controller.py`: thin controller layer shared by the Tkinter GUI and GUI-focused tests
 - `src/import_ops.py`: DOI import and BibTeX import helpers
 - `src/render_ops.py`: LaTeX-native `\CVList[...]` directive parsing, rendering, and optional PDF compilation
@@ -52,15 +53,15 @@ Example:
 python3 cli.py list talks
 ```
 
-### `lint`
+### `check`
 
-Validate one collection or all collections, including missing required fields, malformed records, duplicate cite keys, and duplicate publication DOIs where present.
+Inspect the project without modifying files. `check` reports configuration issues, data-validity errors, data-quality warnings, and template-coverage warnings.
 
 Examples:
 
 ```bash
-python3 cli.py lint
-python3 cli.py lint publications
+python3 cli.py check
+python3 cli.py check publications
 ```
 
 ### `show`
@@ -106,17 +107,6 @@ python3 cli.py import-bibtex publications --file path/to/paper.bib
 python3 cli.py import-bibtex publications --string "@article{demo, title={Example}, author={Doe, John}, year={2024}}"
 ```
 
-### `normalize`
-
-Preview or apply conservative cleanup rules for one collection.
-
-Examples:
-
-```bash
-python3 cli.py normalize talks --dry-run
-python3 cli.py normalize talks --apply
-```
-
 ### `render`
 
 Generate a LaTeX CV from the configured BibTeX collections and template. You can optionally filter entries or request PDF compilation.
@@ -153,7 +143,7 @@ The main window includes:
 - a collection list
 - an entry list for the selected collection
 - an entry detail panel
-- action buttons and menu items for add, edit, DOI import, BibTeX import, validation, normalization, and rendering
+- action buttons and menu items for add, edit, DOI import, BibTeX import, project checking, and rendering
 
 The GUI is intentionally practical rather than highly styled. It is designed to cover routine workflows without reimplementing business logic outside the shared backend modules.
 
@@ -178,6 +168,25 @@ During rendering, the program:
 Ordinary LaTeX text outside those directives is left unchanged. The final `.tex` file is written to `output/`.
 
 By default, the renderer uses the template named by `template_name` in `config.json`. You can still override that choice for a single run with `--template`.
+
+## Project checking
+
+The `check` command is the read-only inspection command for the project:
+
+```bash
+python3 cli.py check
+```
+
+It does not modify BibTeX files, templates, or configuration files. It only reports findings.
+
+The checker reports four kinds of findings:
+
+- `Configuration issues`: missing or invalid config sections, missing template files, and template parse/option problems
+- `Data validity errors`: missing required fields, malformed dates, duplicate cite keys, and duplicate DOI values
+- `Data quality warnings`: softer issues such as duplicate titles
+- `Template coverage warnings`: fields expected by templates but missing from some entries, or sort rules that depend on missing fields
+
+Data-validity errors are problems with the stored BibTeX data itself. Template-coverage warnings mean that a template expects fields that some otherwise-valid entries do not have.
 
 ## Template directives
 

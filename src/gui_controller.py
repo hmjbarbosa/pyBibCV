@@ -1,7 +1,8 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
-from .bibtex_ops import BibTeXManager, NormalizationChange, ParsedEntry
+from .bibtex_ops import BibTeXManager, ParsedEntry
+from .check_ops import CheckReport, ProjectChecker
 from .import_ops import ImportManager
 from .render_ops import CVRenderer, RenderResult
 
@@ -14,10 +15,12 @@ class GUIController:
         manager: BibTeXManager,
         importer: ImportManager,
         renderer: CVRenderer,
+        checker: ProjectChecker,
     ):
         self.manager = manager
         self.importer = importer
         self.renderer = renderer
+        self.checker = checker
 
     @classmethod
     def from_root_dir(cls, root_dir: Path) -> "GUIController":
@@ -25,7 +28,8 @@ class GUIController:
         manager.ensure_storage()
         importer = ImportManager(manager)
         renderer = CVRenderer(root_dir, manager)
-        return cls(manager, importer, renderer)
+        checker = ProjectChecker(root_dir, manager, renderer)
+        return cls(manager, importer, renderer, checker)
 
     def collections(self) -> List[str]:
         return self.manager.categories()
@@ -64,11 +68,8 @@ class GUIController:
     def import_bibtex_string(self, category: str, bibtex_string: str) -> List[ParsedEntry]:
         return self.importer.import_bibtex_string(category, bibtex_string)
 
-    def validate(self, category: Optional[str] = None) -> List[str]:
-        return self.manager.lint_category(category) if category else self.manager.lint_all()
-
-    def normalize(self, category: str, apply_changes: bool) -> Tuple[List[NormalizationChange], List[str]]:
-        return self.manager.normalize_collection(category, dry_run=not apply_changes)
+    def check(self, category: Optional[str] = None) -> CheckReport:
+        return self.checker.run(category)
 
     def render(
         self,

@@ -68,7 +68,7 @@ class Milestone3Tests(unittest.TestCase):
 
         project_root = Path(__file__).resolve().parents[1]
         shutil.copy2(project_root / "cli.py", self.root / "cli.py")
-        for module_name in ["__init__.py", "bibtex_ops.py", "import_ops.py", "render_ops.py"]:
+        for module_name in ["__init__.py", "bibtex_ops.py", "check_ops.py", "import_ops.py", "render_ops.py"]:
             shutil.copy2(project_root / "src" / module_name, self.root / "src" / module_name)
 
         (self.root / "config.json").write_text(TEST_CONFIG, encoding="utf-8")
@@ -193,38 +193,27 @@ class Milestone3Tests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("Duplicate DOI", completed.stdout)
 
-    def test_normalize_collection_in_dry_run_mode(self) -> None:
-        original = (self.root / "data" / "talks.bib").read_text(encoding="utf-8")
-        completed = self.run_cli("normalize", "talks", "--dry-run")
-        current = (self.root / "data" / "talks.bib").read_text(encoding="utf-8")
+    def test_check_reports_template_coverage_separately(self) -> None:
+        completed = self.run_cli("check")
 
         self.assertEqual(completed.returncode, 0)
-        self.assertIn("set note", completed.stdout)
-        self.assertEqual(original, current)
+        self.assertIn("Data validity errors:", completed.stdout)
+        self.assertIn("Template coverage warnings:", completed.stdout)
 
-    def test_normalize_apply_mode_on_safe_example(self) -> None:
-        completed = self.run_cli("normalize", "talks", "--apply")
-        current = (self.root / "data" / "talks.bib").read_text(encoding="utf-8")
-
-        self.assertEqual(completed.returncode, 0)
-        self.assertIn("remove venue", completed.stdout)
-        self.assertNotIn("venue =", current)
-
-    def test_render_compatibility_after_edit_import_and_normalize(self) -> None:
-        self.run_cli("edit", "talks", "barbosa_agu_2026", "--set", "note=Normalized Talk")
+    def test_render_compatibility_after_edit_and_import(self) -> None:
+        self.run_cli("edit", "talks", "barbosa_agu_2026", "--set", "note=Rendered Talk")
         self.run_cli(
             "import-bibtex",
             "publications",
             "--string",
             "@article{renderpaper, title={Renderable Imported Paper}, author={Doe, John}, year={2025}, doi={10.1000/renderable.doi}}",
         )
-        self.run_cli("normalize", "talks", "--apply")
         render_completed = self.run_cli("render", "--output", "milestone3_cv")
         tex_output = (self.root / "output" / "milestone3_cv.tex").read_text(encoding="utf-8")
 
         self.assertEqual(render_completed.returncode, 0)
         self.assertIn("Renderable Imported Paper", tex_output)
-        self.assertIn("Normalized Talk", tex_output)
+        self.assertIn("Rendered Talk", tex_output)
 
 
 if __name__ == "__main__":

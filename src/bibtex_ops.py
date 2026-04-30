@@ -167,8 +167,6 @@ class BibTeXManager:
     ) -> Tuple[List[NormalizationChange], List[str]]:
         entries = self.list_entries(category)
         changes: List[NormalizationChange] = []
-        warnings: List[str] = []
-        render_fields = self.expected_render_fields(category)
 
         for entry in entries:
             fields = dict(entry["fields"])
@@ -176,18 +174,10 @@ class BibTeXManager:
             changes.extend(entry_changes)
             entry["fields"] = fields
 
-            missing_render_fields = [
-                field for field in render_fields if field not in {"entry_type", "cite_key"} and not fields.get(field, "").strip()
-            ]
-            if missing_render_fields:
-                warnings.append(
-                    f"{entry['cite_key']}: missing fields used by current rendering template: {', '.join(missing_render_fields)}"
-                )
-
         if not dry_run and changes:
             self._rewrite_category(category, entries)
 
-        return changes, warnings
+        return changes, []
 
     def lint_category(self, category: str) -> List[str]:
         entries = self.list_entries(category)
