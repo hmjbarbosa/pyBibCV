@@ -275,6 +275,11 @@ class PyBibCVApp:
         self.current_category: Optional[str] = None
         self.current_entry_key: Optional[str] = None
         self.current_entries: List[ParsedEntry] = []
+        self.detail_dirty = False
+        self._loading_detail = False
+        self._suppress_selection_events = False
+        self._pending_collection_index: Optional[int] = None
+        self._ignore_collection_events_until_idle = False
 
         self.root.title("pyBibCV")
         self.root.geometry("1200x700")
@@ -294,7 +299,6 @@ class PyBibCVApp:
 
         entry_menu = tk.Menu(menu_bar, tearoff=False)
         entry_menu.add_command(label="Add Entry", command=self.add_entry)
-        entry_menu.add_command(label="Edit Entry", command=self.edit_entry)
         entry_menu.add_command(label="Import DOI", command=self.import_doi)
         entry_menu.add_command(label="Import BibTeX Text", command=self.import_bibtex_text)
         entry_menu.add_command(label="Import BibTeX File", command=self.import_bibtex_file)
@@ -312,7 +316,6 @@ class PyBibCVApp:
         buttons = [
             ("Refresh", self.refresh_collections),
             ("Add", self.add_entry),
-            ("Edit", self.edit_entry),
             ("Import DOI", self.import_doi),
             ("Import BibTeX Text", self.import_bibtex_text),
             ("Import BibTeX File", self.import_bibtex_file),
@@ -350,8 +353,14 @@ class PyBibCVApp:
         self.entry_list.pack(fill="both", expand=True)
         self.entry_list.bind("<<ListboxSelect>>", self.on_entry_selected)
 
+        detail_controls = ttk.Frame(detail_frame)
+        detail_controls.pack(fill="x", pady=(0, 6))
+        self.save_detail_button = ttk.Button(detail_controls, text="Save", command=self.save_detail_changes, state="disabled")
+        self.save_detail_button.pack(side="right")
+
         self.detail_text = ScrolledText(detail_frame, wrap="word", state="disabled")
         self.detail_text.pack(fill="both", expand=True)
+        self.detail_text.bind("<<Modified>>", self.on_detail_modified)
 
         panes.add(collection_frame, weight=1)
         panes.add(entry_frame, weight=2)
@@ -385,45 +394,106 @@ class PyBibCVApp:
             self.collection_list.event_generate("<<ListboxSelect>>")
 
     def on_collection_selected(self, event: object = None) -> None:
+        if self._suppress_selection_events:
+            return
+        if self._pending_collection_index is not None:
+            return
+        if self._ignore_collection_events_until_idle:
+            self.restore_collection_selection()
+            return
         selection = self.collection_list.curselection()
         if not selection:
             return
 
-        self.current_category = self.collection_list.get(selection[0])
-        self.current_entry_key = None
-        try:
-            self.current_entries = self.controller.list_entries(self.current_category)
-        except Exception as exc:
-            self.show_error(str(exc))
+        selected_index = selection[0]
+        next_category = self.collection_list.get(selected_index)
+        if next_category == self.current_category:
             return
 
-        self.entry_list.delete(0, "end")
-        for entry in self.current_entries:
-            fields = entry["fields"]
-            label = f"{entry['cite_key']} | {fields.get('title', '(no title)')} | {fields.get('year', fields.get('date', ''))}"
-            self.entry_list.insert("end", label)
-        self.clear_detail()
+        detail_snapshot = self.detail_text.get("1.0", "end")
+        if next_category != self.current_category and not self.confirm_discard_unsaved():
+            self._ignore_collection_events_until_idle = True
+            if hasattr(self, "root") and hasattr(self.root, "after_idle"):
+                self.root.after_idle(self.reset_collection_event_ignore)
+            else:
+                self._ignore_collection_events_until_idle = False
+            self.restore_collection_selection()
+            self.restore_dirty_detail_snapshot(detail_snapshot)
+            return
+
+        self._pending_collection_index = selected_index
+        self.schedule_collection_selection(selected_index)
+
+    def apply_collection_selection(self, selected_index: int) -> None:
+        try:
+            collections = self.controller.collections()
+            if selected_index < 0 or selected_index >= len(collections):
+                return
+
+            next_category = collections[selected_index]
+            self._suppress_selection_events = True
+            self.collection_list.selection_clear(0, "end")
+            self.collection_list.selection_set(selected_index)
+            self._suppress_selection_events = False
+
+            self.current_category = next_category
+            self.current_entry_key = None
+            try:
+                self.current_entries = self.controller.list_entries(self.current_category)
+            except Exception as exc:
+                self.show_error(str(exc))
+                return
+
+            self.entry_list.delete(0, "end")
+            for entry in self.current_entries:
+                fields = entry["fields"]
+                label = f"{entry['cite_key']} | {fields.get('title', '(no title)')} | {fields.get('year', fields.get('date', ''))}"
+                self.entry_list.insert("end", label)
+            self.clear_detail()
+        finally:
+            self._pending_collection_index = None
 
     def on_entry_selected(self, event: object = None) -> None:
+        if self._suppress_selection_events:
+            return
         selection = self.entry_list.curselection()
         if not selection or not self.current_category:
             self.clear_detail()
             return
 
-        entry = self.current_entries[selection[0]]
-        self.current_entry_key = entry["cite_key"]
-        self.show_entry_detail(entry)
+        selected_index = selection[0]
+        entry = self.current_entries[selected_index]
+
+        if entry["cite_key"] == self.current_entry_key:
+            return
+
+        detail_snapshot = self.detail_text.get("1.0", "end")
+        if entry["cite_key"] != self.current_entry_key and not self.confirm_discard_unsaved():
+            self.restore_entry_selection()
+            self.restore_dirty_detail_snapshot(detail_snapshot)
+            return
+
+        self.schedule_entry_selection(selected_index)
 
     def clear_detail(self) -> None:
+        self._loading_detail = True
         self.detail_text.config(state="normal")
         self.detail_text.delete("1.0", "end")
         self.detail_text.config(state="disabled")
+        self.detail_text.edit_modified(False)
+        self._loading_detail = False
+        self.detail_dirty = False
+        self.save_detail_button.config(state="disabled")
 
     def show_entry_detail(self, entry: ParsedEntry) -> None:
+        self._loading_detail = True
         self.detail_text.config(state="normal")
         self.detail_text.delete("1.0", "end")
         self.detail_text.insert("1.0", BibTeXManager.format_entry(entry["fields"]))
-        self.detail_text.config(state="disabled")
+        self.detail_text.edit_modified(False)
+        self._loading_detail = False
+        self.detail_dirty = False
+        self.save_detail_button.config(state="normal")
 
     def add_entry(self) -> None:
         dialog = EntryEditorDialog(self.root, self.controller, "Add Entry", category=self.current_category)
@@ -439,39 +509,6 @@ class PyBibCVApp:
             return
         self.refresh_after_change(payload["category"], saved["cite_key"])
         self.write_output(f"Saved entry '{saved['cite_key']}' to '{payload['category']}'.")
-
-    def edit_entry(self) -> None:
-        entry = self.require_selected_entry()
-        if not entry or not self.current_category:
-            return
-
-        dialog = EntryEditorDialog(
-            self.root,
-            self.controller,
-            "Edit Entry",
-            category=self.current_category,
-            entry=entry,
-        )
-        self.root.wait_window(dialog)
-        if not dialog.result:
-            return
-
-        payload = dialog.result
-        new_entry = payload["entry"]
-        set_fields = dict(new_entry)
-        remove_fields = list(payload["remove_fields"])
-        try:
-            updated = self.controller.edit_entry(
-                self.current_category,
-                entry["cite_key"],
-                set_fields,
-                remove_fields,
-            )
-        except Exception as exc:
-            self.show_error(str(exc))
-            return
-        self.refresh_after_change(payload["category"], updated["cite_key"])
-        self.write_output(f"Updated entry '{updated['cite_key']}' in '{payload['category']}'.")
 
     def import_doi(self) -> None:
         dialog = DOIImportDialog(self.root, self.controller.collections(), default_category=self.current_category)
@@ -558,6 +595,21 @@ class PyBibCVApp:
             for issue in report.template_coverage_warnings:
                 self.write_output(f"- {issue}")
 
+    def save_detail_changes(self) -> None:
+        if not self.current_category or not self.current_entry_key:
+            self.show_error("Select an entry before saving.")
+            return
+
+        raw_bibtex = self.detail_text.get("1.0", "end").strip()
+        try:
+            updated = self.controller.replace_entry_from_raw(self.current_category, self.current_entry_key, raw_bibtex)
+        except Exception as exc:
+            self.show_error(str(exc))
+            return
+
+        self.refresh_after_change(self.current_category, updated["cite_key"])
+        self.write_output(f"Saved entry '{updated['cite_key']}' in '{self.current_category}'.")
+
     def render_cv(self) -> None:
         output_name = simpledialog.askstring("Render CV", "Output base name:", initialvalue="cv", parent=self.root)
         if output_name is None:
@@ -590,16 +642,44 @@ class PyBibCVApp:
     def refresh_after_change(self, category: str, cite_key: Optional[str]) -> None:
         self.current_category = category
         self.current_entry_key = cite_key
-        self.refresh_collections()
+        self.detail_dirty = False
+        try:
+            self.current_entries = self.controller.list_entries(category)
+        except Exception as exc:
+            self.show_error(str(exc))
+            return
+
+        self._suppress_selection_events = True
+        self.collection_list.selection_clear(0, "end")
+        collections = self.controller.collections()
+        if category in collections:
+            self.collection_list.selection_set(collections.index(category))
+        self._suppress_selection_events = False
+
+        self.entry_list.delete(0, "end")
+        for entry in self.current_entries:
+            fields = entry["fields"]
+            label = f"{entry['cite_key']} | {fields.get('title', '(no title)')} | {fields.get('year', fields.get('date', ''))}"
+            self.entry_list.insert("end", label)
+
         if not self.current_category:
             return
 
         for index, entry in enumerate(self.current_entries):
             if entry["cite_key"] == cite_key:
+                self._suppress_selection_events = True
                 self.entry_list.selection_clear(0, "end")
                 self.entry_list.selection_set(index)
-                self.entry_list.event_generate("<<ListboxSelect>>")
+                self._suppress_selection_events = False
+                self.show_entry_detail(entry)
                 break
+
+    def on_detail_modified(self, event: object = None) -> None:
+        if self._loading_detail:
+            return
+        if self.detail_text.edit_modified():
+            self.detail_dirty = True
+            self.detail_text.edit_modified(False)
 
     def require_selected_entry(self) -> Optional[ParsedEntry]:
         if not self.current_category or not self.current_entry_key:
@@ -615,6 +695,76 @@ class PyBibCVApp:
         if not self.current_category:
             messagebox.showinfo("Select Collection", "Select a collection first.", parent=self.root)
         return self.current_category
+
+    def confirm_discard_unsaved(self) -> bool:
+        if not self.detail_dirty:
+            return True
+        return messagebox.askyesno(
+            "Unsaved Changes",
+            "You have unsaved changes in Entry Details. Discard them?",
+            parent=self.root,
+        )
+
+    def restore_collection_selection(self) -> None:
+        self._suppress_selection_events = True
+        self.collection_list.selection_clear(0, "end")
+        if self.current_category is None:
+            self._suppress_selection_events = False
+            return
+        collections = self.controller.collections()
+        if self.current_category in collections:
+            self.collection_list.selection_set(collections.index(self.current_category))
+        self._suppress_selection_events = False
+
+    def restore_entry_selection(self) -> None:
+        self._suppress_selection_events = True
+        self.entry_list.selection_clear(0, "end")
+        if self.current_entry_key is None:
+            self._suppress_selection_events = False
+            return
+        for index, entry in enumerate(self.current_entries):
+            if entry["cite_key"] == self.current_entry_key:
+                self.entry_list.selection_set(index)
+                break
+        self._suppress_selection_events = False
+
+    def restore_dirty_detail_snapshot(self, detail_snapshot: str) -> None:
+        if not self.detail_dirty:
+            return
+        self._loading_detail = True
+        self.detail_text.config(state="normal")
+        self.detail_text.delete("1.0", "end")
+        self.detail_text.insert("1.0", detail_snapshot)
+        self.detail_text.edit_modified(False)
+        self._loading_detail = False
+        self.detail_dirty = True
+        self.save_detail_button.config(state="normal")
+
+    def schedule_entry_selection(self, selected_index: int) -> None:
+        if hasattr(self, "root") and hasattr(self.root, "after_idle"):
+            self.root.after_idle(lambda: self.apply_entry_selection(selected_index))
+            return
+        self.apply_entry_selection(selected_index)
+
+    def schedule_collection_selection(self, selected_index: int) -> None:
+        if hasattr(self, "root") and hasattr(self.root, "after_idle"):
+            self.root.after_idle(lambda: self.apply_collection_selection(selected_index))
+            return
+        self.apply_collection_selection(selected_index)
+
+    def reset_collection_event_ignore(self) -> None:
+        self._ignore_collection_events_until_idle = False
+
+    def apply_entry_selection(self, selected_index: int) -> None:
+        if selected_index < 0 or selected_index >= len(self.current_entries):
+            return
+        entry = self.current_entries[selected_index]
+        self._suppress_selection_events = True
+        self.entry_list.selection_clear(0, "end")
+        self.entry_list.selection_set(selected_index)
+        self._suppress_selection_events = False
+        self.current_entry_key = entry["cite_key"]
+        self.show_entry_detail(entry)
 
     def show_error(self, message: str) -> None:
         messagebox.showerror("pyBibCV", message, parent=self.root)

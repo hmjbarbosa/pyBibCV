@@ -59,6 +59,9 @@ class GUIController:
     ) -> ParsedEntry:
         return self.manager.update_entry(category, cite_key, set_fields, remove_fields)
 
+    def replace_entry_from_raw(self, category: str, original_cite_key: str, raw_bibtex: str) -> ParsedEntry:
+        return self.manager.replace_entry_from_raw(category, original_cite_key, raw_bibtex)
+
     def import_doi(self, category: str, doi: str, cite_key: Optional[str] = None) -> ParsedEntry:
         return self.importer.import_doi(category, doi, requested_key=cite_key)
 

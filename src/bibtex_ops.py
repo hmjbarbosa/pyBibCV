@@ -138,9 +138,30 @@ class BibTeXManager:
         if updated_entry is None:
             raise ValueError(f"Entry '{cite_key}' was not found in '{category}'.")
 
+        self._validate_duplicate_cite_key(category, updated_entry["cite_key"], ignore_cite_key=cite_key)
         self._validate_duplicate_doi(category, updated_entry["fields"], ignore_cite_key=updated_entry["cite_key"])
         self._rewrite_category(category, entries)
         return updated_entry
+
+    def replace_entry_from_raw(self, category: str, original_cite_key: str, raw_bibtex: str) -> ParsedEntry:
+        replacement = self.parse_entry(raw_bibtex.strip())
+        entries = self.list_entries(category)
+        found = False
+
+        for index, entry in enumerate(entries):
+            if entry["cite_key"] != original_cite_key:
+                continue
+            found = True
+            entries[index] = replacement
+            break
+
+        if not found:
+            raise ValueError(f"Entry '{original_cite_key}' was not found in '{category}'.")
+
+        self._validate_duplicate_cite_key(category, replacement["cite_key"], ignore_cite_key=original_cite_key)
+        self._validate_duplicate_doi(category, replacement["fields"], ignore_cite_key=original_cite_key)
+        self._rewrite_category(category, entries)
+        return replacement
 
     def import_entries(self, category: str, entries: List[Dict[str, str]]) -> List[ParsedEntry]:
         existing_entries = self.list_entries(category)
@@ -369,6 +390,18 @@ class BibTeXManager:
                 raise ValueError(
                     f"Duplicate DOI '{doi_value}' matches existing entry '{existing['cite_key']}' in '{category}'."
                 )
+
+    def _validate_duplicate_cite_key(
+        self,
+        category: str,
+        cite_key: str,
+        ignore_cite_key: Optional[str] = None,
+    ) -> None:
+        for existing in self.list_entries(category):
+            if ignore_cite_key is not None and existing["cite_key"] == ignore_cite_key:
+                continue
+            if existing["cite_key"] == cite_key:
+                raise ValueError(f"Duplicate cite key '{cite_key}' already exists in '{category}'.")
 
     def _lint_entries(self, category: str, entries: List[ParsedEntry]) -> List[str]:
         issues: List[str] = []
