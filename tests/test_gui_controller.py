@@ -47,6 +47,13 @@ PUBLICATIONS_BIB = """@article{smith2024paper,
   year = {2024},
   journal = {Example Journal},
 }
+
+@inproceedings{nguyen2025paper,
+  title = {Conference Paper},
+  author = {Anh Nguyen},
+  year = {2025},
+  booktitle = {Example Proceedings},
+}
 """
 
 TALKS_BIB = """@misc{talk2026,
@@ -54,6 +61,12 @@ TALKS_BIB = """@misc{talk2026,
   author = {Taylor Speaker},
   date = {2026-05-14},
   venue = {Sample Meeting},
+}
+
+@article{talkArticle2027,
+  title = {Written Talk Summary},
+  author = {Taylor Speaker},
+  year = {2027},
 }
 """
 
@@ -212,7 +225,7 @@ class GUIControllerTests(unittest.TestCase):
             self.controller.required_fields("talks"),
             ["entry_type", "cite_key", "title", "author", "year"],
         )
-        self.assertEqual(self.controller.known_entry_types("talks"), ["misc"])
+        self.assertEqual(self.controller.known_entry_types("talks"), ["misc", "article"])
 
     def test_import_bibtex_through_gui_connected_logic(self) -> None:
         imported = self.controller.import_bibtex_string(
@@ -299,6 +312,248 @@ class GUIControllerTests(unittest.TestCase):
         self.assertIn("@article{smith2024paper,", app.detail_text.contents)
         self.assertEqual(app.save_detail_button.state, "normal")
         self.assertFalse(app.detail_dirty)
+
+    def test_entry_type_filter_populates_with_all_first(self) -> None:
+        class FakeCombobox(dict):
+            pass
+
+        class FakeVar:
+            def __init__(self) -> None:
+                self.value = ""
+
+            def set(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.current_entries = self.controller.list_entries("publications")
+        app.entry_type_box = FakeCombobox()
+        app.entry_type_var = FakeVar()
+        app._suppress_type_filter_event = False
+
+        app.populate_entry_type_filter()
+
+        self.assertEqual(app.entry_type_box["values"][0], "(all)")
+        self.assertEqual(app.entry_type_box["values"], ["(all)", "article", "inproceedings"])
+        self.assertEqual(app.entry_type_var.get(), "(all)")
+
+    def test_filtering_by_entry_type_reduces_entry_list(self) -> None:
+        class FakeVar:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        class FakeListbox:
+            def __init__(self) -> None:
+                self.items = []
+
+            def delete(self, start: int, end: str) -> None:
+                self.items = []
+
+            def insert(self, index: str, text: str) -> None:
+                self.items.append(text)
+
+            def selection_clear(self, start: int, end: str) -> None:
+                return None
+
+            def selection_set(self, index: int) -> None:
+                return None
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.current_entries = self.controller.list_entries("publications")
+        app.filtered_entries = []
+        app.current_entry_key = None
+        app.entry_type_var = FakeVar("article")
+        app.entry_list = FakeListbox()
+        app.clear_detail = mock.Mock()
+        app._suppress_selection_events = False
+
+        app.apply_entry_type_filter()
+
+        self.assertEqual(len(app.filtered_entries), 1)
+        self.assertEqual(app.filtered_entries[0]["entry_type"], "article")
+        self.assertEqual(len(app.entry_list.items), 1)
+
+    def test_switching_filter_back_to_all_restores_full_list(self) -> None:
+        class FakeVar:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        class FakeListbox:
+            def __init__(self) -> None:
+                self.items = []
+
+            def delete(self, start: int, end: str) -> None:
+                self.items = []
+
+            def insert(self, index: str, text: str) -> None:
+                self.items.append(text)
+
+            def selection_clear(self, start: int, end: str) -> None:
+                return None
+
+            def selection_set(self, index: int) -> None:
+                return None
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.current_entries = self.controller.list_entries("publications")
+        app.filtered_entries = []
+        app.current_entry_key = None
+        app.entry_type_var = FakeVar("(all)")
+        app.entry_list = FakeListbox()
+        app.clear_detail = mock.Mock()
+        app._suppress_selection_events = False
+
+        app.apply_entry_type_filter()
+
+        self.assertEqual(len(app.filtered_entries), 2)
+        self.assertEqual(len(app.entry_list.items), 2)
+
+    def test_filter_change_can_be_rejected_when_unsaved_entry_would_disappear(self) -> None:
+        class FakeVar:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+            def set(self, value: str) -> None:
+                self.value = value
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.current_entries = self.controller.list_entries("publications")
+        app.filtered_entries = list(app.current_entries)
+        app.current_entry_key = "smith2024paper"
+        app.current_entry_type_filter = "(all)"
+        app.entry_type_var = FakeVar("inproceedings")
+        app.detail_text = mock.Mock()
+        app.detail_text.get.return_value = "edited raw bibtex"
+        app.detail_dirty = True
+        app._suppress_type_filter_event = False
+        app.confirm_discard_unsaved = mock.Mock(return_value=False)
+        app.restore_dirty_detail_snapshot = mock.Mock()
+
+        app.on_entry_type_selected()
+
+        self.assertEqual(app.entry_type_var.get(), "(all)")
+        app.restore_dirty_detail_snapshot.assert_called_once()
+
+    def test_filter_change_to_visible_type_keeps_current_entry(self) -> None:
+        class FakeVar:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        class FakeListbox:
+            def __init__(self) -> None:
+                self.items = []
+                self.selected_index = None
+
+            def delete(self, start: int, end: str) -> None:
+                self.items = []
+
+            def insert(self, index: str, text: str) -> None:
+                self.items.append(text)
+
+            def selection_clear(self, start: int, end: str) -> None:
+                self.selected_index = None
+
+            def selection_set(self, index: int) -> None:
+                self.selected_index = index
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.current_entries = self.controller.list_entries("publications")
+        app.filtered_entries = list(app.current_entries)
+        app.current_entry_key = "smith2024paper"
+        app.current_entry_type_filter = "(all)"
+        app.entry_type_var = FakeVar("article")
+        app.entry_list = FakeListbox()
+        app.detail_text = mock.Mock()
+        app.detail_text.get.return_value = "edited raw bibtex"
+        app.detail_dirty = True
+        app._suppress_type_filter_event = False
+        app._suppress_selection_events = False
+        app.clear_detail = mock.Mock()
+
+        app.on_entry_type_selected()
+
+        self.assertEqual(app.current_entry_key, "smith2024paper")
+        self.assertEqual(len(app.filtered_entries), 1)
+        self.assertEqual(app.entry_list.selected_index, 0)
+
+    def test_category_change_refreshes_entry_type_filter(self) -> None:
+        class FakeCollectionListbox:
+            def curselection(self) -> tuple[int]:
+                return (1,)
+
+            def get(self, index: int) -> str:
+                return ["publications", "talks"][index]
+
+            def selection_clear(self, start: int, end: str) -> None:
+                return None
+
+            def selection_set(self, index: int) -> None:
+                return None
+
+        class FakeEntryListbox:
+            def __init__(self) -> None:
+                self.items = []
+
+            def delete(self, start: int, end: str) -> None:
+                self.items = []
+
+            def insert(self, index: str, text: str) -> None:
+                self.items.append(text)
+
+        class FakeCombobox(dict):
+            pass
+
+        class FakeVar:
+            def __init__(self) -> None:
+                self.value = ""
+
+            def set(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        app = PyBibCVApp.__new__(PyBibCVApp)
+        app.controller = self.controller
+        app.current_category = "publications"
+        app.current_entry_key = None
+        app.current_entries = []
+        app.filtered_entries = []
+        app.current_entry_type_filter = "(all)"
+        app.collection_list = FakeCollectionListbox()
+        app.entry_list = FakeEntryListbox()
+        app.entry_type_box = FakeCombobox()
+        app.entry_type_var = FakeVar()
+        app.detail_text = mock.Mock()
+        app.detail_text.get.return_value = ""
+        app.detail_dirty = False
+        app._suppress_selection_events = False
+        app._pending_collection_index = None
+        app._ignore_collection_events_until_idle = False
+        app._suppress_type_filter_event = False
+        app.clear_detail = mock.Mock()
+        app.root = mock.Mock()
+        app.root.after_idle = lambda func: func()
+
+        app.on_collection_selected()
+
+        self.assertEqual(app.current_category, "talks")
+        self.assertEqual(app.entry_type_box["values"], ["(all)", "misc", "article"])
+        self.assertEqual(app.entry_type_var.get(), "(all)")
 
     def test_save_detail_changes_saves_valid_inline_edit(self) -> None:
         class FakeText:

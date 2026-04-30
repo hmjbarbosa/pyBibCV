@@ -275,11 +275,14 @@ class PyBibCVApp:
         self.current_category: Optional[str] = None
         self.current_entry_key: Optional[str] = None
         self.current_entries: List[ParsedEntry] = []
+        self.filtered_entries: List[ParsedEntry] = []
+        self.current_entry_type_filter = "(all)"
         self.detail_dirty = False
         self._loading_detail = False
         self._suppress_selection_events = False
         self._pending_collection_index: Optional[int] = None
         self._ignore_collection_events_until_idle = False
+        self._suppress_type_filter_event = False
 
         self.root.title("pyBibCV")
         self.root.geometry("1200x700")
@@ -348,6 +351,20 @@ class PyBibCVApp:
         self.collection_list = tk.Listbox(collection_frame, exportselection=False)
         self.collection_list.pack(fill="both", expand=True)
         self.collection_list.bind("<<ListboxSelect>>", self.on_collection_selected)
+
+        entry_controls = ttk.Frame(entry_frame)
+        entry_controls.pack(fill="x", pady=(0, 6))
+        ttk.Label(entry_controls, text="Entry Type").pack(side="left")
+        self.entry_type_var = tk.StringVar(value="(all)")
+        self.entry_type_box = ttk.Combobox(
+            entry_controls,
+            textvariable=self.entry_type_var,
+            state="readonly",
+            values=["(all)"],
+            width=18,
+        )
+        self.entry_type_box.pack(side="left", padx=(8, 0))
+        self.entry_type_box.bind("<<ComboboxSelected>>", self.on_entry_type_selected)
 
         self.entry_list = tk.Listbox(entry_frame, exportselection=False)
         self.entry_list.pack(fill="both", expand=True)
@@ -438,17 +455,15 @@ class PyBibCVApp:
 
             self.current_category = next_category
             self.current_entry_key = None
+            self.current_entry_type_filter = "(all)"
             try:
                 self.current_entries = self.controller.list_entries(self.current_category)
             except Exception as exc:
                 self.show_error(str(exc))
                 return
 
-            self.entry_list.delete(0, "end")
-            for entry in self.current_entries:
-                fields = entry["fields"]
-                label = f"{entry['cite_key']} | {fields.get('title', '(no title)')} | {fields.get('year', fields.get('date', ''))}"
-                self.entry_list.insert("end", label)
+            self.populate_entry_type_filter()
+            self.apply_entry_type_filter(refresh_detail=False)
             self.clear_detail()
         finally:
             self._pending_collection_index = None
@@ -462,7 +477,8 @@ class PyBibCVApp:
             return
 
         selected_index = selection[0]
-        entry = self.current_entries[selected_index]
+        visible_entries = getattr(self, "filtered_entries", self.current_entries)
+        entry = visible_entries[selected_index]
 
         if entry["cite_key"] == self.current_entry_key:
             return
@@ -494,6 +510,80 @@ class PyBibCVApp:
         self._loading_detail = False
         self.detail_dirty = False
         self.save_detail_button.config(state="normal")
+
+    def populate_entry_type_filter(self) -> None:
+        if not hasattr(self, "entry_type_box") or not hasattr(self, "entry_type_var"):
+            self.filtered_entries = list(self.current_entries)
+            self.current_entry_type_filter = "(all)"
+            return
+        entry_types = ["(all)"]
+        for entry in self.current_entries:
+            entry_type = entry["entry_type"].strip()
+            if entry_type and entry_type not in entry_types:
+                entry_types.append(entry_type)
+
+        self._suppress_type_filter_event = True
+        self.entry_type_box["values"] = entry_types
+        self.entry_type_var.set("(all)")
+        self._suppress_type_filter_event = False
+
+    def apply_entry_type_filter(self, refresh_detail: bool = True) -> None:
+        if not hasattr(self, "entry_type_var"):
+            self.filtered_entries = list(self.current_entries)
+            return
+
+        selected_type = self.entry_type_var.get().strip() or "(all)"
+        self.current_entry_type_filter = selected_type
+        if selected_type == "(all)":
+            self.filtered_entries = list(self.current_entries)
+        else:
+            self.filtered_entries = [entry for entry in self.current_entries if entry["entry_type"].strip() == selected_type]
+
+        self.entry_list.delete(0, "end")
+        for entry in self.filtered_entries:
+            fields = entry["fields"]
+            label = f"{entry['cite_key']} | {fields.get('title', '(no title)')} | {fields.get('year', fields.get('date', ''))}"
+            self.entry_list.insert("end", label)
+
+        if not refresh_detail:
+            return
+
+        if self.current_entry_key:
+            for index, entry in enumerate(self.filtered_entries):
+                if entry["cite_key"] == self.current_entry_key:
+                    self._suppress_selection_events = True
+                    self.entry_list.selection_clear(0, "end")
+                    self.entry_list.selection_set(index)
+                    self._suppress_selection_events = False
+                    return
+
+        self.current_entry_key = None
+        self.clear_detail()
+
+    def on_entry_type_selected(self, event: object = None) -> None:
+        if self._suppress_type_filter_event:
+            return
+
+        new_filter = self.entry_type_var.get().strip() or "(all)"
+        if new_filter == self.current_entry_type_filter:
+            return
+
+        current_entry_still_visible = False
+        if self.current_entry_key:
+            for entry in self.current_entries:
+                if entry["cite_key"] == self.current_entry_key:
+                    current_entry_still_visible = new_filter == "(all)" or entry["entry_type"].strip() == new_filter
+                    break
+
+        detail_snapshot = self.detail_text.get("1.0", "end")
+        if self.detail_dirty and not current_entry_still_visible and not self.confirm_discard_unsaved():
+            self._suppress_type_filter_event = True
+            self.entry_type_var.set(self.current_entry_type_filter)
+            self._suppress_type_filter_event = False
+            self.restore_dirty_detail_snapshot(detail_snapshot)
+            return
+
+        self.apply_entry_type_filter()
 
     def add_entry(self) -> None:
         dialog = EntryEditorDialog(self.root, self.controller, "Add Entry", category=self.current_category)
@@ -656,16 +746,13 @@ class PyBibCVApp:
             self.collection_list.selection_set(collections.index(category))
         self._suppress_selection_events = False
 
-        self.entry_list.delete(0, "end")
-        for entry in self.current_entries:
-            fields = entry["fields"]
-            label = f"{entry['cite_key']} | {fields.get('title', '(no title)')} | {fields.get('year', fields.get('date', ''))}"
-            self.entry_list.insert("end", label)
+        self.populate_entry_type_filter()
+        self.apply_entry_type_filter(refresh_detail=False)
 
         if not self.current_category:
             return
 
-        for index, entry in enumerate(self.current_entries):
+        for index, entry in enumerate(self.filtered_entries):
             if entry["cite_key"] == cite_key:
                 self._suppress_selection_events = True
                 self.entry_list.selection_clear(0, "end")
@@ -717,12 +804,13 @@ class PyBibCVApp:
         self._suppress_selection_events = False
 
     def restore_entry_selection(self) -> None:
+        visible_entries = getattr(self, "filtered_entries", self.current_entries)
         self._suppress_selection_events = True
         self.entry_list.selection_clear(0, "end")
         if self.current_entry_key is None:
             self._suppress_selection_events = False
             return
-        for index, entry in enumerate(self.current_entries):
+        for index, entry in enumerate(visible_entries):
             if entry["cite_key"] == self.current_entry_key:
                 self.entry_list.selection_set(index)
                 break
@@ -756,9 +844,10 @@ class PyBibCVApp:
         self._ignore_collection_events_until_idle = False
 
     def apply_entry_selection(self, selected_index: int) -> None:
-        if selected_index < 0 or selected_index >= len(self.current_entries):
+        visible_entries = getattr(self, "filtered_entries", self.current_entries)
+        if selected_index < 0 or selected_index >= len(visible_entries):
             return
-        entry = self.current_entries[selected_index]
+        entry = visible_entries[selected_index]
         self._suppress_selection_events = True
         self.entry_list.selection_clear(0, "end")
         self.entry_list.selection_set(selected_index)
